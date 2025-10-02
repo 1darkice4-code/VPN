@@ -1,0 +1,115 @@
+import os
+import json
+import secrets
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.utils import executor
+
+
+# ===============================
+# Конфиг через .env
+# ===============================
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise SystemExit("❌ BOT_TOKEN обязателен в .env")
+
+DEV_SKIP_PAYMENTS = os.getenv("DEV_SKIP_PAYMENTS", "1") == "1"
+
+WG_SERVER_ENDPOINT = os.getenv("WG_SERVER_ENDPOINT", "127.0.0.1:51820")
+WG_SERVER_PUBLIC_KEY = os.getenv("WG_SERVER_PUBLIC_KEY", "PUBLIC_KEY_PLACEHOLDER")
+WG_CLIENT_DNS = os.getenv("WG_CLIENT_DNS", "1.1.1.1,8.8.8.8")
+WG_ALLOWED_IPS = os.getenv("WG_ALLOWED_IPS", "0.0.0.0/0,::/0")
+WG_SUBNET = os.getenv("WG_SUBNET", "10.66.66.0/24")
+
+# ===============================
+# Настройка бота
+# ===============================
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(bot)
+
+# Простейший план
+PLANS = {
+    "basic": {"name": "Базовый", "price": 10},
+    "pro": {"name": "Pro", "price": 20}
+}
+
+PLANS_MAP = {k: v for k, v in PLANS.items()}
+
+# ===============================
+# Функции
+# ===============================
+def generate_client_config(client_ip: str) -> str:
+    """Генерируем тестовый конфиг WireGuard"""
+    private_key = secrets.token_hex(16)
+    config = f"""
+[Interface]
+PrivateKey = {private_key}
+Address = {client_ip}/32
+DNS = {WG_CLIENT_DNS}
+
+[Peer]
+PublicKey = {WG_SERVER_PUBLIC_KEY}
+Endpoint = {WG_SERVER_ENDPOINT}
+AllowedIPs = {WG_ALLOWED_IPS}
+"""
+    return config.strip()
+
+
+async def provision_and_send(chat_id: int, user, plan):
+    # Для теста генерируем IP на основе случайного числа
+    last_octet = secrets.randbelow(200) + 10
+    client_ip = f"10.66.66.{last_octet}"
+    config = generate_client_config(client_ip)
+    await bot.send_message(chat_id, f"Ваш конфиг для {plan['name']} готов:\n\n<pre>{config}</pre>", parse_mode="HTML")
+
+
+# ===============================
+# Хендлеры
+# ===============================
+
+@dp.message_handler(commands=["start"])
+async df cmd_start(message: types.Message):
+    user_name = message.from_user.first_name or "друг"
+
+    # Текст приветствия
+    welcome_text = (
+        f"Привет, {user_name} 👋\n\n"
+        "Наша команда готова избавить Вас от:\n\n"
+        "➩ Зависающих видео в запрещённой сети\n"
+        "➩ Бесконечного просмотра рекламы\n"
+        "➩ Блокировки из-за частой смены IP-адреса\n"
+        "➩ Утечки заряда батареи и ваших данных (как у бесплатных VPN)\n\n"
+        "⇩ Главное меню  ⇩"
+	"1️⃣ Выбрать план VPN — /buy\n"
+        "2️⃣ Статус подписки — /status\n"
+        "3️⃣ Помощь — /help"
+    )
+
+    # Кнопки главного меню (ReplyKeyboard)
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.add(KeyboardButton("Выбрать план VPN"))
+    keyboard.add(KeyboardButton("Статус подписки"))
+       # Отправляем сообщение с клавиатурой
+    await message.answer(welcome_text, reply_markup=keyboard)
+
+
+@dp.callback_query_handler(lambda call: call.data.startswith("buy_"))
+async def process_buy(call: types.CallbackQuery):
+    plan_key = call.data.split("_")[1]
+    plan = PLANS_MAP.get(plan_key)
+    print(f"Callback получен: {call.data}, план: {plan_key}")
+    await call.answer("Генерируем конфиг…")
+    await provision_and_send(call.from_user.id, call.from_user, plan)
+
+
+@dp.message_handler(commands=["status"])
+async def cmd_status(message: types.Message):
+    await message.answer("Тестовая база подписок пока пустая.")
+
+
+# ===============================
+# Запуск
+# ===============================
+if __name__ == "__main__":
+    print("Запускаю бота…")
+    executor.start_polling(dp, skip_updates=True)
