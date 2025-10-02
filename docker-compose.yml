@@ -1,0 +1,37 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:12
+    container_name: vpn_db
+    restart: always
+    environment:
+      POSTGRES_DB: vpn_bot_db
+      POSTGRES_USER: vpn_bot_user
+      POSTGRES_PASSWORD: пароль
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  wgrest:
+    build: ./wgrest
+    container_name: wgrest
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./wireguard:/wireguard
+
+  vpn_bot:
+    build: ./vpn_bot
+    container_name: vpn_bot
+    depends_on:
+      - db
+      - wgrest
+    env_file:
+      - ./vpn_bot/.env
+    volumes:
+      - ./vpn_bot:/app
+    working_dir: /app
+    command: python bot.py
+
+volumes:
+  db_data:

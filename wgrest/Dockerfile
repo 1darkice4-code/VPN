@@ -1,0 +1,12 @@
+FROM debian:stable-slim
+
+COPY wgrest /usr/local/bin/wgrest
+RUN chmod +x /usr/local/bin/wgrest
+
+EXPOSE 8000
+
+ENV WGREST_TOKEN=R8v9F2kL1xQz7M0pB8sY3wH4nJ5aV9eK
+
+CMD ["wgrest", "--token=my_secret_token", "--port=8000", "--scheme=http"]
+
+
