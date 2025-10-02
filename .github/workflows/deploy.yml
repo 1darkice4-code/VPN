@@ -1,0 +1,30 @@
+name: Deploy VPN Project
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Клонируем репозиторий
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Деплой на сервер через SSH
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v0.1.8
+        with:
+          host: ${{ secrets.SERVER_HOST }}       # IP или домен сервера
+          username: ${{ secrets.SERVER_USER }}   # SSH пользователь
+          key: ${{ secrets.SERVER_SSH_KEY }}     # Приватный ключ
+          port: 22
+          script: |
+            cd ~/project_root          # переход в корень монорепозитория
+            git pull origin main       # подтягиваем свежий код
+            docker compose down        # останавливаем старые контейнеры
+            docker compose up -d --build   # пересобираем и запускаем
+
