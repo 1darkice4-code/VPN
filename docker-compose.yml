@@ -1,7 +1,7 @@
 version: "3.8"
 
 services:
-  db:
+  vpn_db:
     image: postgres:12
     container_name: vpn_db
     restart: always
@@ -12,26 +12,33 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
 
-  wgrest:
-    build: ./wgrest
-    container_name: wgrest
-    ports:
-      - "5000:5000"
-    volumes:
-      - ./wireguard:/wireguard
-
   vpn_bot:
     build: ./vpn_bot
     container_name: vpn_bot
     depends_on:
-      - db
-      - wgrest
+      - vpn_db
+      - wg
     env_file:
       - ./vpn_bot/.env
     volumes:
-      - ./vpn_bot:/app
+      - ./wg_configs:/app/wg_configs
+      - ./wg:/wg
     working_dir: /app
     command: python bot.py
+
+  wg:
+    image: linuxserver/wireguard
+    container_name: wg
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    volumes:
+      - ./wg:/config
+    ports:
+      - "51820:51820/udp"
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
 
 volumes:
   db_data:
