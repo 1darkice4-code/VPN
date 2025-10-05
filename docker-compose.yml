@@ -1,7 +1,7 @@
 version: "3.8"
 
 services:
-  vpn_db:
+  db:
     image: postgres:12
     container_name: vpn_db
     restart: always
