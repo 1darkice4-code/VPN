@@ -51,6 +51,5 @@ services:
       - ./wg:/config
     restart: unless-stopped
 
-
 volumes:
   db_data:
