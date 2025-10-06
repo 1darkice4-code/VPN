@@ -51,10 +51,9 @@ services:
     volumes:
       - ./wg:/config
       - wgrest_data:/var/lib/wgrest
-    user: "1000:1000"   # UID:GID пользователя контейнера (можно уточнить через `docker exec -it wgrest id`)
+    user: "1000:1000"
     restart: unless-stopped
 
 volumes:
   db_data:
   wgrest_data:
-  
