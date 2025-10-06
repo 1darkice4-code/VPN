@@ -49,7 +49,9 @@ services:
       WG_CONFIG_PATH: /config
     volumes:
       - ./wg:/config
+      - wgrest_data:/var/lib/wgrest   # <--- добавляем
     restart: unless-stopped
 
 volumes:
   db_data:
+  wgrest_data:   # <--- создаем том для wgrest
