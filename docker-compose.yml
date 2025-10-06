@@ -39,12 +39,12 @@ services:
     sysctls:
       - net.ipv4.conf.all.src_valid_mark=1
     restart: unless-stopped
-    
+
   wgrest:
     build: ./wgrest
     container_name: wgrest
     ports:
-      - "5000:5000"  # порт REST API
+      - "5000:5000"
     environment:
       WG_CONFIG_PATH: /config
     volumes:
