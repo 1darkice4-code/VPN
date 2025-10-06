@@ -47,9 +47,11 @@ services:
       - "5000:5000"
     environment:
       WG_CONFIG_PATH: /config
+      WGREST_DATA_DIR: /var/lib/wgrest
     volumes:
       - ./wg:/config
       - wgrest_data:/var/lib/wgrest
+    user: "1000:1000"   # UID:GID пользователя контейнера (можно уточнить через `docker exec -it wgrest id`)
     restart: unless-stopped
 
 volumes:
