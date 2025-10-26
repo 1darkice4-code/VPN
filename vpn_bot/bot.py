@@ -7,16 +7,6 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils import executor
 import psycopg2
 from dotenv import load_dotenv
-from nacl.public import PrivateKey
-import base64
-
-# Вспомогательная функция для генерации корректных ключей WireGuard
-def generate_keys():
-    private_key_obj = PrivateKey.generate()
-    private_key = base64.b64encode(private_key_obj.encode()).decode()
-    public_key = base64.b64encode(private_key_obj.public_key.encode()).decode()
-    return private_key, public_key
-
 
 # Загружаем переменные окружения из .env файла
 load_dotenv()
@@ -102,7 +92,7 @@ def check_wg_device():
     headers = {}
     if WGREST_AUTH_TOKEN:
         headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
-
+    
     try:
         response = requests.get(f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/", headers=headers, timeout=5)
         if response.status_code == 200:
@@ -116,84 +106,90 @@ def check_wg_device():
         return False
 
 def create_peer_via_wgrest(user_id: int, plan_name: str):
-    """Создаем пира через wgREST API и формируем конфиг без GET quick.conf"""
+    """Создаем пира через wgREST API и получаем конфиг"""
     try:
+        # Пробуем использовать wgREST API
+        # Но если он не работает, генерируем конфиг вручную
+        
+        # 1. Проверяем доступность wgREST
+        try:
+            headers = {}
+            if WGREST_AUTH_TOKEN:
+                headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
+            response = requests.get(f"{WGREST_URL}/version", headers=headers, timeout=3)
+            print(f"wgREST доступен, версия: {response.text}")
+        except:
+            raise Exception("wgREST недоступен, используем fallback")
+        
+        # 2. Проверяем доступность устройства
+        if not check_wg_device():
+            raise Exception("WireGuard устройство недоступно. Проверьте, что WireGuard сервис запущен.")
+        
+        # 3. Создаем пира через API
+        peer_name = f"user_{user_id}_{secrets.token_hex(4)}"
+        
         headers = {"Content-Type": "application/json"}
         if WGREST_AUTH_TOKEN:
             headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
-
-        # Проверяем доступность wgREST
-        response = requests.get(f"{WGREST_URL}/version", headers=headers, timeout=3)
-        print(f"wgREST доступен, версия: {response.text}")
-
-        # Проверяем устройство
-        if not check_wg_device():
-            raise Exception("WireGuard устройство недоступно")
-
-        # Создаем пира через API
-        peer_name = f"user_{user_id}_{secrets.token_hex(4)}"
+        
         response = requests.post(
             f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/",
             json={"name": peer_name},
             headers=headers,
             timeout=10
         )
-
-        if response.status_code != 201:
-            raise Exception(f"Не удалось создать пира через wgREST (status {response.status_code})")
-
-        peer_data = response.json()
-        print("DEBUG wgREST POST peers response:", peer_data)
-
-        # Берем public_key из ответа
-        public_key = peer_data.get("url_safe_public_key") or peer_data.get("public_key")
-        if not public_key:
-            raise Exception(f"Не удалось получить public_key пира: {peer_data}")
-
-        # Генерируем приватный ключ клиента (или можно использовать библиотеку для генерации)
-        private_key, _ = generate_keys()
-
-        # Определяем IP клиента
-        client_ip = f"10.250.250.{100 + (user_id % 150)}"
-
-        # Собираем конфиг
-        server_endpoint = os.getenv('SERVER_ENDPOINT', 'your-server-ip:51831')
-        server_public_key = os.getenv('SERVER_PUBLIC_KEY', 'MzUciL6+pfBWjte7YVAPlxBuIvCTCvk9kJGA2kjZMTA=')
-
-        config = f"""[Interface]
-        PrivateKey = {private_key}
-        Address = {client_ip}/24
-        DNS = 1.1.1.1, 8.8.8.8
-
-        [Peer]
-        PublicKey = {server_public_key}
-        Endpoint = {server_endpoint}
-        AllowedIPs = 0.0.0.0/0
-        PersistentKeepalive = 25"""
-
-        print(f"✅ Конфиг сгенерирован для {client_ip}")
-        return config, public_key
-
+        
+        if response.status_code in [200, 201]:
+            peer = response.json()
+            print(f"DEBUG: Peer response: {peer}")
+            # Используем правильное имя поля из wgREST API (snake_case)
+            peer_key = peer.get('public_key', '')
+            
+            if not peer_key:
+                raise Exception("Не удалось получить публичный ключ пира")
+            
+            # Получаем конфиг
+            config_headers = {}
+            if WGREST_AUTH_TOKEN:
+                config_headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
+            
+            config_response = requests.get(
+                f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/{peer_key}/quick.conf",
+                headers=config_headers,
+                timeout=10
+            )
+            
+            if config_response.status_code == 200:
+                config = config_response.text
+                print(f"✅ Конфиг получен через wgREST")
+                return config, peer_key
+            else:
+                print(f"❌ Ошибка получения конфига: {config_response.status_code}")
+                raise Exception(f"Не удалось получить конфигурацию пира")
+        
+        print(f"❌ Ошибка создания пира: {response.status_code} - {response.text}")
+        raise Exception("wgREST API не смог создать пир")
+        
     except Exception as e:
-        print(f"⚠️ Ошибка при создании пира через wgREST: {e}")
-        # fallback
+        print(f"⚠️ wgREST недоступен: {e}")
+        # Fallback - генерируем конфиг вручную
         return generate_fallback_config(user_id)
-
 
 def generate_fallback_config(user_id: int):
     """Генерируем fallback конфигурацию когда wgREST недоступен"""
     print("🔄 Генерируем fallback конфигурацию...")
-
+    
     # Генерируем ключи клиента
-    private_key, public_key = generate_keys()
-
+    private_key = secrets.token_hex(32)
+    public_key = secrets.token_hex(32)
+    
     # Получаем IP сервера (из переменных окружения или используем дефолтный)
     server_endpoint = os.getenv('SERVER_ENDPOINT', 'your-server-ip:51831')
     server_public_key = os.getenv('SERVER_PUBLIC_KEY', 'MzUciL6+pfBWjte7YVAPlxBuIvCTCvk9kJGA2kjZMTA=')
-
+    
     # Генерируем IP клиента
     client_ip = f"10.250.250.{100 + (user_id % 150)}"
-
+    
     config = f"""[Interface]
 PrivateKey = {private_key}
 Address = {client_ip}/24
@@ -204,7 +200,7 @@ PublicKey = {server_public_key}
 Endpoint = {server_endpoint}
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25"""
-
+    
     print(f"✅ Fallback конфигурация создана для IP {client_ip}")
     return config, public_key
 
@@ -248,47 +244,38 @@ def save_subscription_to_db(user: types.User, plan_key: str, client_ip: str, con
 # ===============================
 # Отправка конфига (основная логика)
 # ===============================
-async def provision_and_send_all(chat_id: int, user: types.User, plan_key: str):
-    """Генерируем 7 конфигов для подписки и отправляем пользователю"""
+async def provision_and_send(chat_id: int, user: types.User, plan_key: str):
+    """Генерируем конфиг и отправляем пользователю; сохраняем в БД"""
     plan = PLANS.get(plan_key)
     if not plan:
         await bot.send_message(chat_id, "❌ Ошибка: выбран неверный план.")
         return
 
-    configs = []
-    used_ips = set()
+    try:
+        # Генерируем IP в подсети
+        last_octet = secrets.randbelow(200) + 10
+        client_ip = f"10.66.66.{last_octet}"
+        
+        # Генерируем конфиг через wgREST
+        config = generate_client_config(user.id, client_ip)
 
-    for i in range(7):  # 7 устройств
-        # Генерация уникального IP в подсети
-        while True:
-            last_octet = secrets.randbelow(200) + 10
-            client_ip = f"10.66.66.{last_octet}"
-            if client_ip not in used_ips:
-                used_ips.add(client_ip)
-                break
-
-        # Генерация конфига через wgREST или fallback
-        config = generate_client_config(user.id * 10 + i, client_ip)
-
-        # Сохраняем подписку в БД
+        # Сохраняем в базу
         save_subscription_to_db(user, plan_key, client_ip, config)
 
-        configs.append((client_ip, config))
-
-    # Отправляем пользователю все 7 конфигов
-    for client_ip, config in configs:
+        # Отправляем конфиг как текст и как файл (.conf)
         try:
-            # Текстовое сообщение
+            # Отправляем текст в pre-блоке
             await bot.send_message(
                 chat_id,
-                f"✅ Конфиг для IP `{client_ip}`:\n\n<pre>{config}</pre>",
+                f"✅ Ваш конфиг для *{plan['name']}* готов:\n\n<pre>{config}</pre>",
                 parse_mode="HTML"
             )
         except Exception:
-            await bot.send_message(chat_id, f"Конфиг для {client_ip} готов (plain text)")
+            # fallback plain
+            await bot.send_message(chat_id, f"Ваш конфиг для {plan['name']} готов. (Не удалось отформатировать пред.)")
 
+        # Дополнительно отправим файл .conf
         try:
-            # Отправка файла .conf
             from io import BytesIO
             bio = BytesIO()
             bio.write(config.encode())
@@ -297,6 +284,14 @@ async def provision_and_send_all(chat_id: int, user: types.User, plan_key: str):
             await bot.send_document(chat_id, bio)
         except Exception as e:
             print("send_document error:", e)
+            
+    except Exception as e:
+        print(f"❌ Ошибка создания конфига: {e}")
+        await bot.send_message(
+            chat_id, 
+            f"❌ Ошибка создания VPN конфигурации: {str(e)}\n\n"
+            "Попробуйте позже или обратитесь в поддержку: @Jotaro1707"
+        )
 
 # ===============================
 # Хендлеры: меню, покупки, инструкции
@@ -337,8 +332,8 @@ async def callback_buy(call: types.CallbackQuery):
 @dp.callback_query_handler(lambda call: call.data.startswith("buy_"))
 async def process_buy(call: types.CallbackQuery):
     plan_key = call.data.split("_", 1)[1]
-    await call.answer("Генерируем 7 конфигов…")
-    await provision_and_send_all(call.from_user.id, call.from_user, plan_key)
+    await call.answer("Генерируем конфиг…")
+    await provision_and_send(call.from_user.id, call.from_user, plan_key)
 
 # --- Status ---
 @dp.callback_query_handler(lambda c: c.data == "menu_status")
