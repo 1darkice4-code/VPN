@@ -65,17 +65,10 @@ if not BOT_TOKEN:
 
 DEV_SKIP_PAYMENTS = os.getenv("DEV_SKIP_PAYMENTS", "1") == "1"
 
-WG_SERVER_ENDPOINT = os.getenv("WG_SERVER_ENDPOINT", "127.0.0.1:51820")
-WG_SERVER_PUBLIC_KEY = os.getenv("WG_SERVER_PUBLIC_KEY", "PUBLIC_KEY_PLACEHOLDER")
-WG_CLIENT_DNS = os.getenv("WG_CLIENT_DNS", "1.1.1.1,8.8.8.8")
-WG_ALLOWED_IPS = os.getenv("WG_ALLOWED_IPS", "0.0.0.0/0,::/0")
-WG_SUBNET = os.getenv("WG_SUBNET", "10.66.66.0/24")
-
 # wgREST API endpoint
 WGREST_URL = os.getenv("WGREST_URL", "http://host.docker.internal:8080")
 WGREST_DEVICE = os.getenv("WGREST_DEVICE", "wg0")
 WGREST_AUTH_TOKEN = os.getenv("WGREST_AUTH_TOKEN", "")
-USE_WGREST = os.getenv("USE_WGREST", "true") == "true"
 
 # ===============================
 # Настройка бота
@@ -108,18 +101,35 @@ def create_wg_device():
     except:
         pass
     
-    # Устройство не существует, создаем
+    # Устройство не существует, создаем с полной конфигурацией
     try:
         print(f"Создаем устройство {WGREST_DEVICE}...")
+        device_config = {
+            "name": WGREST_DEVICE,
+            "listenPort": 51830,
+            "address": "10.66.66.1/24",
+            "privateKey": "",  # wgREST сгенерирует автоматически
+            "dns": ["1.1.1.1", "8.8.8.8"],
+            "mtu": 1420,
+            "firewallMark": 0,
+            "table": "auto",
+            "preUp": "",
+            "postUp": "iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE",
+            "preDown": "",
+            "postDown": "iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE"
+        }
+        
         response = requests.post(
             f"{WGREST_URL}/v1/devices/",
-            json={"name": WGREST_DEVICE},
+            json=device_config,
             headers=headers,
-            timeout=5
+            timeout=10
         )
         if response.status_code in [200, 201]:
             print(f"✅ Устройство {WGREST_DEVICE} создано")
             return True
+        else:
+            print(f"❌ Ошибка создания устройства: {response.status_code} - {response.text}")
     except Exception as e:
         print(f"❌ Ошибка создания устройства: {e}")
     
@@ -186,34 +196,15 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
         # Fallback - генерируем конфиг вручную
         raise
 
-def generate_demo_config(client_ip: str) -> str:
-    """Демо-конфиг (fallback если wgREST не работает)"""
-    private_key = secrets.token_urlsafe(32)
-    
-    config = f"""[Interface]
-PrivateKey = {private_key}
-Address = {client_ip}/24
-DNS = {WG_CLIENT_DNS}
-
-[Peer]
-PublicKey = {WG_SERVER_PUBLIC_KEY}
-Endpoint = {WG_SERVER_ENDPOINT}
-AllowedIPs = {WG_ALLOWED_IPS}
-PersistentKeepalive = 25
-"""
-    return config.strip()
-
 def generate_client_config(user_id: int, client_ip: str) -> str:
-    """Генерируем настоящий конфиг WireGuard через wgREST или демо"""
-    if USE_WGREST:
-        try:
-            # Используем wgREST для создания реального пира
-            return create_peer_via_wgrest(user_id, "VIP")[0]
-        except Exception as e:
-            print(f"⚠️ wgREST недоступен, используем демо-конфиг: {e}")
-            return generate_demo_config(client_ip)
-    else:
-        return generate_demo_config(client_ip)
+    """Генерируем конфиг WireGuard через wgREST API"""
+    try:
+        # Используем wgREST для создания реального пира
+        config, public_key = create_peer_via_wgrest(user_id, "VIP")
+        return config
+    except Exception as e:
+        print(f"❌ Ошибка создания конфига через wgREST: {e}")
+        raise Exception(f"Не удалось создать VPN конфигурацию: {e}")
 
 def save_user_to_db(user: types.User):
     """Сохраняем пользователя в таблицу users, если его нет"""
@@ -251,38 +242,47 @@ async def provision_and_send(chat_id: int, user: types.User, plan_key: str):
         await bot.send_message(chat_id, "❌ Ошибка: выбран неверный план.")
         return
 
-    # Генерируем IP в подсети (только для теста)
-    last_octet = secrets.randbelow(200) + 10
-    client_ip = f"10.66.66.{last_octet}"
-    
-    # Генерируем конфиг через wgREST (реальный) или демо
-    config = generate_client_config(user.id, client_ip)
-
-    # Сохраняем в базу
-    save_subscription_to_db(user, plan_key, client_ip, config)
-
-    # Отправляем конфиг как текст и как файл (.conf) — удобно пользователю
     try:
-        # Отправляем текст в pre-блоке
-        await bot.send_message(
-            chat_id,
-            f"✅ Ваш конфиг для *{plan['name']}* готов:\n\n<pre>{config}</pre>",
-            parse_mode="HTML"
-        )
-    except Exception:
-        # fallback plain
-        await bot.send_message(chat_id, f"Ваш конфиг для {plan['name']} готов. (Не удалось отформатировать пред.)")
+        # Генерируем IP в подсети
+        last_octet = secrets.randbelow(200) + 10
+        client_ip = f"10.66.66.{last_octet}"
+        
+        # Генерируем конфиг через wgREST
+        config = generate_client_config(user.id, client_ip)
 
-    # Дополнительно отправим файл .conf
-    try:
-        from io import BytesIO
-        bio = BytesIO()
-        bio.write(config.encode())
-        bio.seek(0)
-        bio.name = f"wg_{client_ip}.conf"
-        await bot.send_document(chat_id, bio)
+        # Сохраняем в базу
+        save_subscription_to_db(user, plan_key, client_ip, config)
+
+        # Отправляем конфиг как текст и как файл (.conf)
+        try:
+            # Отправляем текст в pre-блоке
+            await bot.send_message(
+                chat_id,
+                f"✅ Ваш конфиг для *{plan['name']}* готов:\n\n<pre>{config}</pre>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            # fallback plain
+            await bot.send_message(chat_id, f"Ваш конфиг для {plan['name']} готов. (Не удалось отформатировать пред.)")
+
+        # Дополнительно отправим файл .conf
+        try:
+            from io import BytesIO
+            bio = BytesIO()
+            bio.write(config.encode())
+            bio.seek(0)
+            bio.name = f"wg_{client_ip}.conf"
+            await bot.send_document(chat_id, bio)
+        except Exception as e:
+            print("send_document error:", e)
+            
     except Exception as e:
-        print("send_document error:", e)
+        print(f"❌ Ошибка создания конфига: {e}")
+        await bot.send_message(
+            chat_id, 
+            f"❌ Ошибка создания VPN конфигурации: {str(e)}\n\n"
+            "Попробуйте позже или обратитесь в поддержку: @Jotaro1707"
+        )
 
 # ===============================
 # Хендлеры: меню, покупки, инструкции
