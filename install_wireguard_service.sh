@@ -49,7 +49,7 @@ echo "📝 Создание конфигурации WireGuard..."
 cat > "$CONFIG_FILE" << EOF
 [Interface]
 PrivateKey = $PRIVATE_KEY
-Address = 10.66.66.1/24
+Address = 10.66.66.2/24
 ListenPort = $LISTEN_PORT
 DNS = 1.1.1.1, 8.8.8.8
 MTU = 1420
