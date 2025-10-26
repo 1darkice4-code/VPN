@@ -56,16 +56,13 @@ services:
       - NET_ADMIN
       - NET_RAW
       - SYS_MODULE
-    ports:
-      - "8080:8000"
+    network_mode: host  # Используем host network для доступа к WireGuard
     environment:
-      WGREST_LISTEN: 0.0.0.0:8000
+      WGREST_LISTEN: 0.0.0.0:8080
       WGREST_DATA_DIR: /var/lib/wgrest
     volumes:
       - ./wg:/config
       - wgrest_data:/var/lib/wgrest
-    networks:
-      - vpn_network
     restart: unless-stopped
 
   # Telegram бот
