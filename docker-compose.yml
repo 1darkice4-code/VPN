@@ -37,7 +37,7 @@ services:
       - INTERNAL_SUBNET=10.66.66.0
     volumes:
       - ./wg:/config
-      - ./wg-init:/docker-entrypoint-init.d  # скрипт для автоматического создания wg0.conf
+      - ./wg-init:/docker-entrypoint-init.d
     ports:
       - "51830:51830/udp"
     sysctls:
@@ -56,13 +56,14 @@ services:
       - NET_ADMIN
       - NET_RAW
       - SYS_MODULE
-    network_mode: host
+    network_mode: "container:wg"  # <- Используем сетевой стек wg
     environment:
       WGREST_LISTEN: 0.0.0.0:8080
       WGREST_DATA_DIR: /config
       WGREST_STATIC_AUTH_TOKEN: "b1g5r4nd0mt0k3n12345"
     volumes:
       - ./wg:/config
+      - /dev/net:/dev/net       # <- доступ к туннельному устройству
     restart: unless-stopped
 
   # Telegram бот
