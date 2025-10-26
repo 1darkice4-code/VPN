@@ -1,9 +1,12 @@
 #!/bin/bash
 
-# Скрипт для установки WireGuard как системного сервиса
-# Запускать с правами root
+# Безопасная установка WireGuard как системного сервиса
+# Автор: Альберт (адаптировано с улучшениями)
+# Требует root
 
-set -e
+set -euo pipefail
+LOG_FILE="/var/log/wireguard_install.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
 
 DEVICE_NAME="wg0"
 LISTEN_PORT="51830"
@@ -12,22 +15,53 @@ CONFIG_FILE="$CONFIG_DIR/$DEVICE_NAME.conf"
 SERVICE_NAME="wg-quick@$DEVICE_NAME"
 
 echo "🔧 Установка WireGuard как системного сервиса..."
+echo "🕓 $(date)"
 
-# Проверяем права root
+# Проверка прав root
 if [ "$EUID" -ne 0 ]; then
     echo "❌ Запустите скрипт с правами root: sudo $0"
     exit 1
 fi
 
-# Устанавливаем WireGuard
-echo "📦 Установка WireGuard..."
-apt update
-apt install -y wireguard
+# Проверка и удаление старого интерфейса wg0, если остался
+if ip link show "$DEVICE_NAME" &>/dev/null; then
+    echo "⚠️ Интерфейс $DEVICE_NAME уже существует — удаляю..."
+    ip link delete "$DEVICE_NAME" || true
+fi
 
-# Создаем директорию конфигурации
+# Установка WireGuard
+echo "📦 Проверка наличия WireGuard..."
+apt update -y
+apt install -y wireguard >/dev/null 2>&1
+
+# Создание директории
 mkdir -p "$CONFIG_DIR"
 
-# Генерируем ключи если не существуют
+# Определение основного сетевого интерфейса (где есть выход в интернет)
+DEFAULT_IFACE=$(ip route | grep default | awk '{print $5}' | head -n1)
+if [ -z "$DEFAULT_IFACE" ]; then
+    echo "❌ Не удалось определить сетевой интерфейс с выходом в интернет"
+    exit 1
+fi
+echo "🌐 Основной интерфейс: $DEFAULT_IFACE"
+
+# Поиск свободной подсети (чтобы не конфликтовать с Docker)
+echo "🔍 Подбор свободной подсети..."
+for NET in 10.44.44 10.55.55 10.66.66 10.77.77 10.88.88 10.99.99; do
+    if ! ip addr | grep -q "${NET}"; then
+        WG_NET="${NET}.0/24"
+        WG_IP="${NET}.1/24"
+        break
+    fi
+done
+
+if [ -z "${WG_NET:-}" ]; then
+    echo "❌ Не удалось найти свободную подсеть для WireGuard"
+    exit 1
+fi
+echo "✅ Выбрана подсеть: $WG_NET"
+
+# Генерация ключей
 PRIVATE_KEY_FILE="$CONFIG_DIR/${DEVICE_NAME}_private.key"
 PUBLIC_KEY_FILE="$CONFIG_DIR/${DEVICE_NAME}_public.key"
 
@@ -38,74 +72,55 @@ if [ ! -f "$PRIVATE_KEY_FILE" ]; then
     chmod 644 "$PUBLIC_KEY_FILE"
 fi
 
-# Читаем ключи
 PRIVATE_KEY=$(cat "$PRIVATE_KEY_FILE")
 PUBLIC_KEY=$(cat "$PUBLIC_KEY_FILE")
 
 echo "🔑 Публичный ключ сервера: $PUBLIC_KEY"
 
-# Создаем конфигурацию WireGuard
+# Создание конфигурации
 echo "📝 Создание конфигурации WireGuard..."
 cat > "$CONFIG_FILE" << EOF
 [Interface]
 PrivateKey = $PRIVATE_KEY
-Address = 10.66.66.2/24
+Address = $WG_IP
 ListenPort = $LISTEN_PORT
-DNS = 1.1.1.1, 8.8.8.8
+DNS = 1.1.1.1,8.8.8.8
 MTU = 1420
 
-# Автоматические правила iptables для NAT
-PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o $DEFAULT_IFACE -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o $DEFAULT_IFACE -j MASQUERADE
 EOF
 
-# Устанавливаем права доступа
 chmod 600 "$CONFIG_FILE"
 
-# Включаем IP forwarding
+# Включение IP forwarding
 echo "🌐 Включение IP forwarding..."
-echo 'net.ipv4.ip_forward = 1' >> /etc/sysctl.conf
-sysctl -p
+sysctl -w net.ipv4.ip_forward=1 >/dev/null
+grep -q "net.ipv4.ip_forward" /etc/sysctl.conf || echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
 
-# Запускаем WireGuard как системный сервис
+# Запуск WireGuard
 echo "🚀 Запуск WireGuard сервиса..."
 systemctl enable "$SERVICE_NAME"
-systemctl start "$SERVICE_NAME"
+systemctl restart "$SERVICE_NAME"
 
-# Проверяем статус
-echo "📊 Проверка статуса WireGuard..."
 sleep 2
 
 if systemctl is-active --quiet "$SERVICE_NAME"; then
-    echo "✅ WireGuard сервис запущен успешно"
+    echo "✅ WireGuard сервис запущен успешно!"
 else
-    echo "❌ Ошибка запуска WireGuard сервиса"
-    systemctl status "$SERVICE_NAME"
+    echo "❌ Ошибка при запуске WireGuard!"
+    journalctl -u "$SERVICE_NAME" -n 20
     exit 1
 fi
 
-# Показываем информацию
+# Финальная информация
 echo ""
-echo "🎉 WireGuard установлен и настроен!"
-echo "📋 Публичный ключ сервера: $PUBLIC_KEY"
-echo "🌐 Интерфейс: $DEVICE_NAME"
-echo "🔌 Порт: $LISTEN_PORT"
+echo "🎉 WireGuard установлен и запущен"
+echo "📋 Публичный ключ: $PUBLIC_KEY"
 echo "📁 Конфигурация: $CONFIG_FILE"
-echo "🔧 Сервис: $SERVICE_NAME"
-
-# Показываем статус
+echo "🌐 Подсеть: $WG_NET"
+echo "🔌 Порт: $LISTEN_PORT"
+echo "🔧 Интерфейс: $DEVICE_NAME"
+echo "🪪 Внешний интерфейс: $DEFAULT_IFACE"
 echo ""
-echo "📊 Статус устройства:"
-wg show "$DEVICE_NAME"
-
-echo ""
-echo "🔍 Статус сервиса:"
-systemctl status "$SERVICE_NAME" --no-pager -l
-
-echo ""
-echo "📝 Команды для управления:"
-echo "  Остановить: sudo systemctl stop $SERVICE_NAME"
-echo "  Запустить:   sudo systemctl start $SERVICE_NAME"
-echo "  Перезапустить: sudo systemctl restart $SERVICE_NAME"
-echo "  Статус:      sudo systemctl status $SERVICE_NAME"
-echo "  Логи:        sudo journalctl -u $SERVICE_NAME -f"
+echo "🪶 Лог установки: $LOG_FILE"
