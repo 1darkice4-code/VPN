@@ -55,11 +55,8 @@ services:
       - wg
     cap_add:
       - NET_ADMIN
-    ports:
-      - "8080:8000"
-    environment:
-      WGREST_LISTEN: 0.0.0.0:8000
-      WGREST_DATA_DIR: /var/lib/wgrest
+      - NET_RAW
+      - SYS_MODULE
     volumes:
       - ./wg:/config
       - wgrest_data:/var/lib/wgrest
