@@ -142,11 +142,13 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
         if response.status_code in [200, 201]:
             peer = response.json()
             print(f"DEBUG: Peer response: {peer}")
-            # Используем правильное имя поля из wgREST API (snake_case)
-            peer_key = peer.get('public_key', '')
+            # Используем url_safe_public_key для URL (API требует именно этот формат)
+            peer_key = peer.get('url_safe_public_key', '')
             
             if not peer_key:
                 raise Exception("Не удалось получить публичный ключ пира")
+            
+            print(f"DEBUG: Requesting config for key: {peer_key}")
             
             # Получаем конфиг
             config_headers = {}
