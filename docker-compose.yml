@@ -84,6 +84,7 @@ services:
       DB_USER: vpn_bot_user
       DB_PASSWORD: post123
       WGREST_URL: http://host.docker.internal:8080  # Доступ к host network из контейнера
+      WGREST_AUTH_TOKEN: b1g5r4nd0mt0k3n12345  # Токен для wgREST API
     volumes:
       - ./wg:/wg
     working_dir: /app
