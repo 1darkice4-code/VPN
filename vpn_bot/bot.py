@@ -128,13 +128,20 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
         # 3. Создаем пира через API
         peer_name = f"user_{user_id}_{secrets.token_hex(4)}"
         
+        # Генерируем IP для клиента (10.66.66.10-210)
+        client_ip = f"10.66.66.{10 + (user_id % 200)}/32"
+        
         headers = {"Content-Type": "application/json"}
         if WGREST_AUTH_TOKEN:
             headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
         
+        # Создаем пира с указанием allowed_ips
         response = requests.post(
             f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/",
-            json={"name": peer_name},
+            json={
+                "name": peer_name,
+                "allowed_ips": [client_ip]
+            },
             headers=headers,
             timeout=10
         )
