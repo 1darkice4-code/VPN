@@ -140,30 +140,33 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
             timeout=10
         )
 
-        if response.status_code in [200, 201]:
-            peer_list = response.json()  # это список пиров
-            if isinstance(peer_list, list) and len(peer_list) > 0:
-                # Берем реальный ключ пира wgREST
-                peer_key = peer_list[0].get("public_key") or peer_list[0].get("publicKey")
-            else:
-                raise Exception("Не удалось получить публичный ключ пира")
+        print("DEBUG wgREST POST peers response:", response.status_code, response.text)
+        peer_data = response.json()
 
-            # Получаем конфиг
-            config_response = requests.get(
-                f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/{peer_key}/quick.conf",
-                headers=headers,
-                timeout=10
-            )
-
-            if config_response.status_code == 200:
-                config = config_response.text
-                print(f"✅ Конфиг получен через wgREST")
-                return config, peer_key
-            else:
-                raise Exception(f"Не удалось получить конфигурацию пира (status {config_response.status_code})")
-
+        # Определяем ключ из ответа
+        if isinstance(peer_data, list) and len(peer_data) > 0:
+            peer_key = peer_data[0].get("publicKey") or peer_data[0].get("key") or peer_data[0].get("public_key")
+        elif isinstance(peer_data, dict):
+            peer_key = peer_data.get("publicKey") or peer_data.get("key") or peer_data.get("public_key")
         else:
-            raise Exception(f"Ошибка создания пира: {response.status_code} - {response.text}")
+            peer_key = None
+
+        if not peer_key:
+            raise Exception(f"Не удалось получить публичный ключ пира из ответа wgREST")
+
+        # Получаем конфиг
+        config_response = requests.get(
+            f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/{peer_key}/quick.conf",
+            headers=headers,
+            timeout=10
+        )
+
+        if config_response.status_code == 200:
+            config = config_response.text
+            print(f"✅ Конфиг получен через wgREST")
+            return config, peer_key
+        else:
+            raise Exception(f"Не удалось получить конфигурацию пира (status {config_response.status_code})")
 
     except Exception as e:
         print(f"⚠️ wgREST недоступен или ошибка: {e}")
