@@ -100,13 +100,10 @@ PLANS = {
     "premium": {"name": "6 мес (Premium)", "price": 1499}
 }
 
-
 # ===============================
 # Вспомогательные функции
 # ===============================
-
 def save_user_to_db(user: types.User):
-    """Сохраняем пользователя в БД"""
     try:
         cursor.execute(
             "INSERT INTO users (telegram_id, username, first_name) VALUES (%s, %s, %s) ON CONFLICT (telegram_id) DO NOTHING",
@@ -119,7 +116,6 @@ def save_user_to_db(user: types.User):
 
 
 def save_subscription_to_db(user: types.User, plan_key: str, client_ip: str, config: str):
-    """Сохраняем подписку"""
     try:
         save_user_to_db(user)
         cursor.execute(
@@ -133,7 +129,6 @@ def save_subscription_to_db(user: types.User, plan_key: str, client_ip: str, con
 
 
 def generate_demo_config(client_ip: str) -> str:
-    """Генерация демо-конфига WireGuard"""
     private_key = secrets.token_urlsafe(32)
     return f"""[Interface]
 PrivateKey = {private_key}
@@ -149,15 +144,10 @@ PersistentKeepalive = 25
 
 
 def create_wg_device():
-    """Проверяем наличие устройства в wgREST и создаем при необходимости"""
     headers = {"Authorization": f"Bearer {WGREST_AUTH_TOKEN}", "Content-Type": "application/json"}
-
-    # Проверка устройства
     resp = requests.get(f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/", headers=headers, timeout=5)
     if resp.status_code == 404:
-        # создаем устройство
-        resp_create = requests.post(f"{WGREST_URL}/v1/devices/", json={"name": WGREST_DEVICE}, headers=headers,
-                                    timeout=5)
+        resp_create = requests.post(f"{WGREST_URL}/v1/devices/", json={"name": WGREST_DEVICE}, headers=headers, timeout=5)
         if resp_create.status_code not in [200, 201]:
             raise Exception(f"Не удалось создать устройство {WGREST_DEVICE}: {resp_create.text}")
         print(f"✅ Устройство {WGREST_DEVICE} создано")
@@ -167,19 +157,14 @@ def create_wg_device():
         print(f"✅ Устройство {WGREST_DEVICE} существует")
 
 
-def create_peer_via_wgrest(user_id: int, plan_name: str):
-    """Создаем пира через wgREST и возвращаем конфиг"""
-    if not WGREST_AUTH_TOKEN:
-        raise SystemExit("WGREST_AUTH_TOKEN не задан в .env")
-
+def create_peer_via_wgrest(user_id: int):
     headers = {"Authorization": f"Bearer {WGREST_AUTH_TOKEN}", "Content-Type": "application/json"}
 
     # Проверка доступности wgREST
-    try:
-        resp_ver = requests.get(f"{WGREST_URL}/version", headers=headers, timeout=5)
-        print(f"wgREST доступен, версия: {resp_ver.text}")
-    except Exception as e:
-        raise Exception(f"wgREST недоступен: {e}")
+    resp_ver = requests.get(f"{WGREST_URL}/version", headers=headers, timeout=5)
+    if resp_ver.status_code != 200:
+        raise Exception(f"wgREST недоступен: {resp_ver.status_code} {resp_ver.text}")
+    print(f"wgREST доступен, версия: {resp_ver.text}")
 
     # Проверка/создание устройства
     create_wg_device()
@@ -200,22 +185,19 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
     if not peer_key:
         raise Exception("wgREST вернул пира без urlSafePubKey")
 
-    # Получаем конфиг .conf
-    resp_conf = requests.get(f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/{peer_key}/quick.conf", headers=headers,
-                             timeout=10)
+    # Получаем конфиг
+    resp_conf = requests.get(f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/{peer_key}/quick.conf", headers=headers, timeout=10)
     if resp_conf.status_code != 200:
         raise Exception(f"Не удалось получить конфиг: {resp_conf.status_code} {resp_conf.text}")
 
-    config = resp_conf.text
     print(f"✅ Конфиг для {peer_name} получен через wgREST")
-    return config, peer.get("publicKey", "")
+    return resp_conf.text
 
 
 def generate_client_config(user_id: int, client_ip: str) -> str:
-    """Генерация конфига — через wgREST или fallback демо"""
     if USE_WGREST:
         try:
-            return create_peer_via_wgrest(user_id, "VIP")[0]
+            return create_peer_via_wgrest(user_id)
         except Exception as e:
             print(f"⚠️ wgREST недоступен, используем демо-конфиг: {e}")
             return generate_demo_config(client_ip)
@@ -224,33 +206,21 @@ def generate_client_config(user_id: int, client_ip: str) -> str:
 
 
 async def provision_and_send(chat_id: int, user: types.User, plan_key: str):
-    """Генерация конфигурации и отправка пользователю"""
     plan = PLANS.get(plan_key)
     if not plan:
         await bot.send_message(chat_id, "❌ Ошибка: выбран неверный план.")
         return
 
-    # Генерация IP в подсети
     last_octet = secrets.randbelow(200) + 10
     client_ip = f"10.66.66.{last_octet}"
-
-    # Генерация конфига
     config = generate_client_config(user.id, client_ip)
-
-    # Сохраняем в БД
     save_subscription_to_db(user, plan_key, client_ip, config)
 
-    # Отправка в чате
     try:
-        await bot.send_message(
-            chat_id,
-            f"✅ Ваш конфиг для *{plan['name']}* готов:\n\n<pre>{config}</pre>",
-            parse_mode="HTML"
-        )
+        await bot.send_message(chat_id, f"✅ Ваш конфиг для *{plan['name']}* готов:\n\n<pre>{config}</pre>", parse_mode="HTML")
     except:
         await bot.send_message(chat_id, f"Ваш конфиг для {plan['name']} готов. (Не удалось отформатировать пред.)")
 
-    # Отправка файла
     try:
         bio = BytesIO()
         bio.write(config.encode())
@@ -262,7 +232,7 @@ async def provision_and_send(chat_id: int, user: types.User, plan_key: str):
 
 
 # ===============================
-# Хендлеры меню
+# Хендлеры и меню
 # ===============================
 @dp.message_handler(commands=["start"])
 async def cmd_start(message: types.Message):
@@ -285,6 +255,7 @@ async def cmd_start(message: types.Message):
     await message.answer(welcome_text, reply_markup=keyboard)
 
 
+# --- Меню покупки
 @dp.callback_query_handler(lambda c: c.data == "menu_buy")
 async def callback_buy(call: types.CallbackQuery):
     await call.answer()
@@ -301,6 +272,7 @@ async def process_buy(call: types.CallbackQuery):
     await provision_and_send(call.from_user.id, call.from_user, plan_key)
 
 
+# --- Статус подписки
 @dp.callback_query_handler(lambda c: c.data == "menu_status")
 async def callback_status(call: types.CallbackQuery):
     await call.answer()
@@ -330,6 +302,7 @@ async def callback_status(call: types.CallbackQuery):
         await call.message.answer("Ошибка при получении статуса подписки. Попробуйте позже.")
 
 
+# --- Меню помощь
 @dp.callback_query_handler(lambda c: c.data == "menu_help")
 async def callback_help(call: types.CallbackQuery):
     await call.answer()
@@ -344,7 +317,7 @@ async def callback_help(call: types.CallbackQuery):
     await call.message.edit_text(f"{user_name}, выберите необходимый пункт меню:", reply_markup=keyboard)
 
 
-# --- Submenus: help_connect, help_issue, help_contact
+# --- Подменю помощи
 @dp.callback_query_handler(lambda c: c.data == "help_connect")
 async def help_connect(call: types.CallbackQuery):
     await call.answer()
@@ -363,110 +336,43 @@ async def help_connect(call: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "help_issue")
 async def help_issue(call: types.CallbackQuery):
     await call.answer()
-    user_name = call.from_user.first_name or "друг"
     text = (
-        f"{user_name}, я всегда рад помочь вам, но для начала 👇\n\n"
         "‼️ ЧИТАТЬ ВСЕМ ‼️\n\n"
         "1. Попробуйте выключить/включить VPN и сеть.\n"
         "2. Перезагрузите устройство.\n"
         "3. Если была оплата — проверьте статус в разделе \"Статус подписки\".\n\n"
-        "Если проблема сохраняется — напишите в поддержку: @Jotaro1707"
+        "Если проблема сохраняется — напишите мне."
     )
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(InlineKeyboardButton("Главное меню", callback_data="menu_main"))
+    keyboard = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("Связаться со мной", url="https://t.me/yourusername"),
+        InlineKeyboardButton("🔙 Назад", callback_data="menu_help")
+    )
     await call.message.edit_text(text, reply_markup=keyboard)
 
 
 @dp.callback_query_handler(lambda c: c.data == "help_contact")
 async def help_contact(call: types.CallbackQuery):
     await call.answer()
-    text = "С предложениями и вопросами — пишите @Jotaro1707"
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(
-        InlineKeyboardButton("Как подключиться?", callback_data="help_connect"),
-        InlineKeyboardButton("Не работает VPN", callback_data="help_issue"),
-        InlineKeyboardButton("Главное меню", callback_data="menu_main"),
-    )
-    await call.message.edit_text(text, reply_markup=keyboard)
+    text = "📩 Связаться со мной можно здесь: [Telegram](https://t.me/yourusername)"
+    keyboard = InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Главное меню", callback_data="menu_main"))
+    await call.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
+# --- Главное меню
 @dp.callback_query_handler(lambda c: c.data == "menu_main")
-async def back_to_main(call: types.CallbackQuery):
+async def callback_main(call: types.CallbackQuery):
     await call.answer()
-    user_name = call.from_user.first_name or "друг"
-    welcome_text = (
-        f"Привет, {user_name} 👋\n\n"
-        "Наш VPN поможет вам:\n\n"
-        "➩ Избавиться от рекламы и блокировок\n"
-        "➩ Поддерживать стабильное соединение\n"
-        "➩ Работать безопасно и анонимно\n\n"
-        "⇩ Главное меню ⇩"
-    )
     keyboard = InlineKeyboardMarkup(row_width=1)
     keyboard.add(
         InlineKeyboardButton("Выбрать план VPN", callback_data="menu_buy"),
         InlineKeyboardButton("Статус подписки", callback_data="menu_status"),
         InlineKeyboardButton("Помощь", callback_data="menu_help")
     )
-    await call.message.edit_text(welcome_text, reply_markup=keyboard)
-
-
-# --- OS-specific instructions
-@dp.callback_query_handler(lambda c: c.data == "connect_android")
-async def connect_android(call: types.CallbackQuery):
-    await call.answer()
-    text = (
-        "📱 Инструкция по подключению VPN на Android:\n\n"
-        "1️⃣ Установите приложение WireGuard: https://play.google.com/store/apps/details?id=com.wireguard.android\n"
-        "2️⃣ Скачайте конфиг (он придет в чате после покупки)\n"
-        "3️⃣ В приложении нажмите ➕ → Импорт из файла и выберите скачанный .conf\n"
-        "4️⃣ Включите туннель"
-    )
-    await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup().add(
-        InlineKeyboardButton("Главное меню", callback_data="menu_main")))
-
-
-@dp.callback_query_handler(lambda c: c.data == "connect_ios")
-async def connect_ios(call: types.CallbackQuery):
-    await call.answer()
-    text = (
-        "🍏 Инструкция по подключению VPN на iOS:\n\n"
-        "1️⃣ Установите WireGuard: https://apps.apple.com/ru/app/wireguard/id1441195209\n"
-        "2️⃣ Откройте файл .conf из чата и поделитесь им в WireGuard\n"
-        "3️⃣ Включите туннель"
-    )
-    await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup().add(
-        InlineKeyboardButton("Главное меню", callback_data="menu_main")))
-
-
-@dp.callback_query_handler(lambda c: c.data == "connect_macos")
-async def connect_macos(call: types.CallbackQuery):
-    await call.answer()
-    text = (
-        "💻 Инструкция для macOS:\n\n"
-        "1️⃣ Установите WireGuard: https://apps.apple.com/ru/app/wireguard/id1451685025?mt=12\n"
-        "2️⃣ Импортируйте .conf в приложение\n"
-        "3️⃣ Включите туннель"
-    )
-    await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup().add(
-        InlineKeyboardButton("Главное меню", callback_data="menu_main")))
-
-
-@dp.callback_query_handler(lambda c: c.data == "connect_windows")
-async def connect_windows(call: types.CallbackQuery):
-    await call.answer()
-    text = (
-        "🖥 Инструкция для Windows:\n\n"
-        "1️⃣ Скачайте WireGuard: https://download.wireguard.com/windows-client/wireguard-installer.exe\n"
-        "2️⃣ Откройте .conf файл и импортируйте его в приложение\n"
-        "3️⃣ Включите туннель"
-    )
-    await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup().add(
-        InlineKeyboardButton("Главное меню", callback_data="menu_main")))
+    await call.message.edit_text("Главное меню:", reply_markup=keyboard)
 
 
 # ===============================
-# Запуск бота
+# Старт бота
 # ===============================
 if __name__ == "__main__":
     print("Запускаю бота…")
