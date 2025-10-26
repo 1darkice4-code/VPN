@@ -88,7 +88,7 @@ PLANS = {
 # ===============================
 
 def create_wg_device():
-    """Проверяем и создаем WireGuard устройство если нужно"""
+    """Проверяем существование WireGuard устройства"""
     headers = {}
     if WGREST_AUTH_TOKEN:
         headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
@@ -98,42 +98,12 @@ def create_wg_device():
         if response.status_code == 200:
             print(f"✅ Устройство {WGREST_DEVICE} существует")
             return True
-    except:
-        pass
-    
-    # Устройство не существует, создаем с полной конфигурацией
-    try:
-        print(f"Создаем устройство {WGREST_DEVICE}...")
-        device_config = {
-            "name": WGREST_DEVICE,
-            "listenPort": 51830,
-            "address": "10.66.66.1/24",
-            "privateKey": "",  # wgREST сгенерирует автоматически
-            "dns": ["1.1.1.1", "8.8.8.8"],
-            "mtu": 1420,
-            "firewallMark": 0,
-            "table": "auto",
-            "preUp": "",
-            "postUp": "iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE",
-            "preDown": "",
-            "postDown": "iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE"
-        }
-        
-        response = requests.post(
-            f"{WGREST_URL}/v1/devices/",
-            json=device_config,
-            headers=headers,
-            timeout=10
-        )
-        if response.status_code in [200, 201]:
-            print(f"✅ Устройство {WGREST_DEVICE} создано")
-            return True
         else:
-            print(f"❌ Ошибка создания устройства: {response.status_code} - {response.text}")
+            print(f"❌ Устройство {WGREST_DEVICE} не найдено (статус: {response.status_code})")
+            return False
     except Exception as e:
-        print(f"❌ Ошибка создания устройства: {e}")
-    
-    return False
+        print(f"❌ Ошибка проверки устройства: {e}")
+        return False
 
 def create_peer_via_wgrest(user_id: int, plan_name: str):
     """Создаем пира через wgREST API и получаем конфиг"""
@@ -151,9 +121,9 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
         except:
             raise Exception("wgREST недоступен, используем fallback")
         
-        # 2. Пробуем создать устройство через API
+        # 2. Проверяем существование устройства
         if not create_wg_device():
-            raise Exception("Не удалось создать устройство через API")
+            raise Exception("WireGuard устройство не найдено. Обратитесь к администратору.")
         
         # 3. Создаем пира через API
         peer_name = f"user_{user_id}_{secrets.token_hex(4)}"
