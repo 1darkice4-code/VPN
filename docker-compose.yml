@@ -56,7 +56,7 @@ services:
       - NET_ADMIN
       - NET_RAW
       - SYS_MODULE
-    network_mode: "container:wg"  # Используем сетевой стек wg
+    network_mode: host  # Используем host network для доступа к WireGuard
     environment:
       WGREST_LISTEN: 0.0.0.0:8080
       WGREST_DATA_DIR: /config
@@ -83,11 +83,13 @@ services:
       DB_NAME: vpn_bot_db
       DB_USER: vpn_bot_user
       DB_PASSWORD: post123
-      WGREST_URL: http://wgrest:8080   # <- обращаемся по имени сервиса
+      WGREST_URL: http://host.docker.internal:8080
       WGREST_AUTH_TOKEN: b1g5r4nd0mt0k3n12345
     volumes:
       - ./wg:/wg
     working_dir: /app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Для доступа к хосту
     networks:
       - vpn_network
     restart: unless-stopped

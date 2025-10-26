@@ -133,7 +133,10 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
         
         # 1. Проверяем доступность wgREST
         try:
-            response = requests.get(f"{WGREST_URL}/version", timeout=3)
+            headers = {}
+            if WGREST_AUTH_TOKEN:
+                headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
+            response = requests.get(f"{WGREST_URL}/version", headers=headers, timeout=3)
             print(f"wgREST доступен, версия: {response.text}")
         except:
             raise Exception("wgREST недоступен, используем fallback")
