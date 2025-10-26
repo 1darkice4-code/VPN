@@ -118,11 +118,11 @@ def check_wg_device():
 def create_peer_via_wgrest(user_id: int, plan_name: str):
     """Создаем пира через wgREST API и получаем конфиг"""
     try:
-        # Проверяем доступность wgREST
         headers = {}
         if WGREST_AUTH_TOKEN:
             headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
 
+        # Проверяем доступность wgREST
         response = requests.get(f"{WGREST_URL}/version", headers=headers, timeout=3)
         print(f"wgREST доступен, версия: {response.text}")
 
@@ -160,7 +160,7 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
                 print(f"✅ Конфиг получен через wgREST")
                 return config, peer_key
             else:
-                raise Exception(f"Не удалось получить конфигурацию пира")
+                raise Exception(f"Не удалось получить конфигурацию пира (status {config_response.status_code})")
 
         else:
             raise Exception(f"Ошибка создания пира: {response.status_code} - {response.text}")
@@ -169,7 +169,6 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
         print(f"⚠️ wgREST недоступен или ошибка: {e}")
         # Fallback - генерируем конфиг вручную
         return generate_fallback_config(user_id)
-
 
 def generate_fallback_config(user_id: int):
     """Генерируем fallback конфигурацию когда wgREST недоступен"""
