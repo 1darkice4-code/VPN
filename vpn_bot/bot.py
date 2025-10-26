@@ -116,9 +116,9 @@ def check_wg_device():
         return False
 
 def create_peer_via_wgrest(user_id: int, plan_name: str):
-    """Создаем пира через wgREST API и получаем конфиг"""
+    """Создаем пира через wgREST API и формируем конфиг без GET quick.conf"""
     try:
-        headers = {}
+        headers = {"Content-Type": "application/json"}
         if WGREST_AUTH_TOKEN:
             headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
 
@@ -132,7 +132,6 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
 
         # Создаем пира через API
         peer_name = f"user_{user_id}_{secrets.token_hex(4)}"
-        headers["Content-Type"] = "application/json"
         response = requests.post(
             f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/",
             json={"name": peer_name},
@@ -140,41 +139,46 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
             timeout=10
         )
 
-        print("DEBUG wgREST POST peers response:", response.status_code, response.text)
+        if response.status_code != 201:
+            raise Exception(f"Не удалось создать пира через wgREST (status {response.status_code})")
+
         peer_data = response.json()
+        print("DEBUG wgREST POST peers response:", peer_data)
 
-        # Определяем ключ из ответа
-        # Определяем ключ из ответа
-        peer_key = None
-        if isinstance(peer_data, dict):
-            peer_key = peer_data.get("url_safe_public_key") or peer_data.get("public_key")
-        elif isinstance(peer_data, list) and len(peer_data) > 0:
-            peer_key = peer_data[0].get("url_safe_public_key") or peer_data[0].get("public_key")
+        # Берем public_key из ответа
+        public_key = peer_data.get("url_safe_public_key") or peer_data.get("public_key")
+        if not public_key:
+            raise Exception(f"Не удалось получить public_key пира: {peer_data}")
 
-        if not peer_key:
-            raise Exception(f"Не удалось получить публичный ключ пира из ответа wgREST: {peer_data}")
+        # Генерируем приватный ключ клиента (или можно использовать библиотеку для генерации)
+        private_key, _ = generate_keys()
 
-        # URL-энкодинг ключа
-        from urllib.parse import quote
-        peer_key_safe = quote(peer_key, safe='')
+        # Определяем IP клиента
+        client_ip = f"10.250.250.{100 + (user_id % 150)}"
 
-        config_response = requests.get(
-            f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/{peer_key_safe}/quick.conf",
-            headers=headers,
-            timeout=10
-        )
+        # Собираем конфиг
+        server_endpoint = os.getenv('SERVER_ENDPOINT', 'your-server-ip:51831')
+        server_public_key = os.getenv('SERVER_PUBLIC_KEY', 'MzUciL6+pfBWjte7YVAPlxBuIvCTCvk9kJGA2kjZMTA=')
 
-        if config_response.status_code == 200:
-            config = config_response.text
-            print(f"✅ Конфиг получен через wgREST")
-            return config, peer_key
-        else:
-            raise Exception(f"Не удалось получить конфигурацию пира (status {config_response.status_code})")
+        config = f"""[Interface]
+        PrivateKey = {private_key}
+        Address = {client_ip}/24
+        DNS = 1.1.1.1, 8.8.8.8
+
+        [Peer]
+        PublicKey = {server_public_key}
+        Endpoint = {server_endpoint}
+        AllowedIPs = 0.0.0.0/0
+        PersistentKeepalive = 25"""
+
+        print(f"✅ Конфиг сгенерирован для {client_ip}")
+        return config, public_key
 
     except Exception as e:
-        print(f"⚠️ wgREST недоступен или ошибка: {e}")
-        # Fallback - генерируем конфиг вручную
+        print(f"⚠️ Ошибка при создании пира через wgREST: {e}")
+        # fallback
         return generate_fallback_config(user_id)
+
 
 def generate_fallback_config(user_id: int):
     """Генерируем fallback конфигурацию когда wgREST недоступен"""
