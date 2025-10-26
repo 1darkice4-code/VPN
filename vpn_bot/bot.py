@@ -118,70 +118,57 @@ def check_wg_device():
 def create_peer_via_wgrest(user_id: int, plan_name: str):
     """Создаем пира через wgREST API и получаем конфиг"""
     try:
-        # Пробуем использовать wgREST API
-        # Но если он не работает, генерируем конфиг вручную
-        
-        # 1. Проверяем доступность wgREST
-        try:
-            headers = {}
-            if WGREST_AUTH_TOKEN:
-                headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
-            response = requests.get(f"{WGREST_URL}/version", headers=headers, timeout=3)
-            print(f"wgREST доступен, версия: {response.text}")
-        except:
-            raise Exception("wgREST недоступен, используем fallback")
-        
-        # 2. Проверяем доступность устройства
-        if not check_wg_device():
-            raise Exception("WireGuard устройство недоступно. Проверьте, что WireGuard сервис запущен.")
-        
-        # 3. Создаем пира через API
-        peer_name = f"user_{user_id}_{secrets.token_hex(4)}"
-        
-        headers = {"Content-Type": "application/json"}
+        # Проверяем доступность wgREST
+        headers = {}
         if WGREST_AUTH_TOKEN:
             headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
-        
+
+        response = requests.get(f"{WGREST_URL}/version", headers=headers, timeout=3)
+        print(f"wgREST доступен, версия: {response.text}")
+
+        # Проверяем устройство
+        if not check_wg_device():
+            raise Exception("WireGuard устройство недоступно")
+
+        # Создаем пира через API
+        peer_name = f"user_{user_id}_{secrets.token_hex(4)}"
+        headers["Content-Type"] = "application/json"
         response = requests.post(
             f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/",
             json={"name": peer_name},
             headers=headers,
             timeout=10
         )
-        
+
         if response.status_code in [200, 201]:
-            peer = response.json()
-            peer_key = peer.get('publicKey', '')
-            
-            if not peer_key:
+            peer_list = response.json()  # это список пиров
+            if isinstance(peer_list, list) and len(peer_list) > 0:
+                peer_key = peer_list[0].get("publicKey")
+            else:
                 raise Exception("Не удалось получить публичный ключ пира")
-            
+
             # Получаем конфиг
-            config_headers = {}
-            if WGREST_AUTH_TOKEN:
-                config_headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
-            
             config_response = requests.get(
                 f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/{peer_key}/quick.conf",
-                headers=config_headers,
+                headers=headers,
                 timeout=10
             )
-            
+
             if config_response.status_code == 200:
                 config = config_response.text
                 print(f"✅ Конфиг получен через wgREST")
                 return config, peer_key
             else:
-                print(f"❌ Ошибка получения конфига: {config_response.status_code}")
                 raise Exception(f"Не удалось получить конфигурацию пира")
-        
-        print(f"❌ Ошибка создания пира: {response.status_code} - {response.text}")
-        raise Exception("wgREST API не смог создать пир")
-        
+
+        else:
+            raise Exception(f"Ошибка создания пира: {response.status_code} - {response.text}")
+
     except Exception as e:
-        print(f"⚠️ wgREST недоступен: {e}")
+        print(f"⚠️ wgREST недоступен или ошибка: {e}")
         # Fallback - генерируем конфиг вручную
         return generate_fallback_config(user_id)
+
 
 def generate_fallback_config(user_id: int):
     """Генерируем fallback конфигурацию когда wgREST недоступен"""
