@@ -60,6 +60,7 @@ services:
     environment:
       WGREST_LISTEN: 0.0.0.0:8080
       WGREST_DATA_DIR: /var/lib/wgrest
+      WGREST_STATIC_AUTH_TOKEN: "b1g5r4nd0mt0k3n12345"  # Токен для API
     volumes:
       - ./wg:/config
       - wgrest_data:/var/lib/wgrest

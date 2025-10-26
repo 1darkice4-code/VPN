@@ -72,8 +72,9 @@ WG_ALLOWED_IPS = os.getenv("WG_ALLOWED_IPS", "0.0.0.0/0,::/0")
 WG_SUBNET = os.getenv("WG_SUBNET", "10.66.66.0/24")
 
 # wgREST API endpoint
-WGREST_URL = os.getenv("WGREST_URL", "http://wgrest:8000")
+WGREST_URL = os.getenv("WGREST_URL", "http://host.docker.internal:8080")
 WGREST_DEVICE = os.getenv("WGREST_DEVICE", "wg0")
+WGREST_AUTH_TOKEN = os.getenv("WGREST_AUTH_TOKEN", "")
 USE_WGREST = os.getenv("USE_WGREST", "true") == "true"
 
 # ===============================
@@ -95,8 +96,12 @@ PLANS = {
 
 def create_wg_device():
     """Проверяем и создаем WireGuard устройство если нужно"""
+    headers = {}
+    if WGREST_AUTH_TOKEN:
+        headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
+    
     try:
-        response = requests.get(f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/", timeout=5)
+        response = requests.get(f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/", headers=headers, timeout=5)
         if response.status_code == 200:
             print(f"✅ Устройство {WGREST_DEVICE} существует")
             return True
@@ -109,6 +114,7 @@ def create_wg_device():
         response = requests.post(
             f"{WGREST_URL}/v1/devices/",
             json={"name": WGREST_DEVICE},
+            headers=headers,
             timeout=5
         )
         if response.status_code in [200, 201]:
@@ -139,9 +145,14 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
         # 3. Создаем пира через API
         peer_name = f"user_{user_id}_{secrets.token_hex(4)}"
         
+        headers = {"Content-Type": "application/json"}
+        if WGREST_AUTH_TOKEN:
+            headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
+        
         response = requests.post(
             f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/",
             json={"name": peer_name},
+            headers=headers,
             timeout=10
         )
         
@@ -150,8 +161,13 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
             peer_key = peer.get('urlSafePubKey', '')
             
             # Получаем конфиг
+            config_headers = {}
+            if WGREST_AUTH_TOKEN:
+                config_headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
+            
             config_response = requests.get(
                 f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/{peer_key}/quick.conf",
+                headers=config_headers,
                 timeout=10
             )
             
