@@ -7,6 +7,16 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils import executor
 import psycopg2
 from dotenv import load_dotenv
+from nacl.public import PrivateKey
+import base64
+
+# Вспомогательная функция для генерации корректных ключей WireGuard
+def generate_keys():
+    private_key_obj = PrivateKey.generate()
+    private_key = base64.b64encode(private_key_obj.encode()).decode()
+    public_key = base64.b64encode(private_key_obj.public_key.encode()).decode()
+    return private_key, public_key
+
 
 # Загружаем переменные окружения из .env файла
 load_dotenv()
@@ -178,8 +188,7 @@ def generate_fallback_config(user_id: int):
     print("🔄 Генерируем fallback конфигурацию...")
     
     # Генерируем ключи клиента
-    private_key = secrets.token_hex(32)
-    public_key = secrets.token_hex(32)
+    private_key, public_key = generate_keys()
     
     # Получаем IP сервера (из переменных окружения или используем дефолтный)
     server_endpoint = os.getenv('SERVER_ENDPOINT', 'your-server-ip:51831')
