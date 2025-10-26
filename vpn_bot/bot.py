@@ -1,10 +1,15 @@
 import os
 import secrets
+import requests
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils import executor
 import psycopg2
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения из .env файла
+load_dotenv()
 
 # ===============================
 # Подключение к БД (sync psycopg2)
@@ -66,6 +71,11 @@ WG_CLIENT_DNS = os.getenv("WG_CLIENT_DNS", "1.1.1.1,8.8.8.8")
 WG_ALLOWED_IPS = os.getenv("WG_ALLOWED_IPS", "0.0.0.0/0,::/0")
 WG_SUBNET = os.getenv("WG_SUBNET", "10.66.66.0/24")
 
+# wgREST API endpoint
+WGREST_URL = os.getenv("WGREST_URL", "http://wgrest:8000")
+WGREST_DEVICE = os.getenv("WGREST_DEVICE", "wg0")
+USE_WGREST = os.getenv("USE_WGREST", "true") == "true"
+
 # ===============================
 # Настройка бота
 # ===============================
@@ -82,21 +92,104 @@ PLANS = {
 # ===============================
 # Вспомогательные функции
 # ===============================
-def generate_client_config(client_ip: str) -> str:
-    """Генерируем тестовый конфиг WireGuard (тут можно подключить wgrest позже)"""
-    private_key = secrets.token_hex(16)
-    config = f"""
-[Interface]
+
+def create_wg_device():
+    """Проверяем и создаем WireGuard устройство если нужно"""
+    try:
+        response = requests.get(f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/", timeout=5)
+        if response.status_code == 200:
+            print(f"✅ Устройство {WGREST_DEVICE} существует")
+            return True
+    except:
+        pass
+    
+    # Устройство не существует, создаем
+    try:
+        print(f"Создаем устройство {WGREST_DEVICE}...")
+        response = requests.post(
+            f"{WGREST_URL}/v1/devices/",
+            json={"name": WGREST_DEVICE},
+            timeout=5
+        )
+        if response.status_code in [200, 201]:
+            print(f"✅ Устройство {WGREST_DEVICE} создано")
+            return True
+    except Exception as e:
+        print(f"❌ Ошибка создания устройства: {e}")
+    
+    return False
+
+def create_peer_via_wgrest(user_id: int, plan_name: str):
+    """Создаем пира через wgREST API и получаем конфиг"""
+    try:
+        # 1. Убедимся что устройство существует
+        if not create_wg_device():
+            raise Exception("Не удалось создать устройство WireGuard")
+        
+        # 2. Создаем пира
+        peer_name = f"user_{user_id}_{secrets.token_hex(4)}"
+        print(f"Создаем пира {peer_name} для пользователя {user_id}...")
+        
+        response = requests.post(
+            f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/",
+            json={
+                "name": peer_name,
+                "description": f"{plan_name} - User: {user_id}"
+            },
+            timeout=10
+        )
+        
+        if response.status_code not in [200, 201]:
+            raise Exception(f"Ошибка создания пира: {response.status_code}")
+        
+        peer = response.json()
+        
+        # 3. Получаем конфиг пира
+        config_response = requests.get(
+            f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/{peer['urlSafePubKey']}/quick.conf",
+            timeout=10
+        )
+        
+        if config_response.status_code != 200:
+            raise Exception(f"Ошибка получения конфига: {config_response.status_code}")
+        
+        config = config_response.text
+        print(f"✅ Пир создан успешно: {peer_name}")
+        
+        return config, peer.get('publicKey', '')
+        
+    except Exception as e:
+        print(f"❌ Ошибка wgREST: {e}")
+        raise
+
+def generate_demo_config(client_ip: str) -> str:
+    """Демо-конфиг (fallback если wgREST не работает)"""
+    private_key = secrets.token_urlsafe(32)
+    
+    config = f"""[Interface]
 PrivateKey = {private_key}
-Address = {client_ip}/32
+Address = {client_ip}/24
 DNS = {WG_CLIENT_DNS}
 
 [Peer]
 PublicKey = {WG_SERVER_PUBLIC_KEY}
 Endpoint = {WG_SERVER_ENDPOINT}
 AllowedIPs = {WG_ALLOWED_IPS}
+PersistentKeepalive = 25
 """
     return config.strip()
+
+def generate_client_config(user_id: int, client_ip: str) -> str:
+    """Генерируем настоящий конфиг WireGuard через wgREST или демо"""
+    if USE_WGREST:
+        try:
+            # Используем wgREST для создания реального пира
+            return create_peer_via_wgrest(user_id, "VIP")[0]
+        except Exception as e:
+            print(f"⚠️ wgREST недоступен, используем демо-конфиг: {e}")
+            return generate_demo_config(client_ip)
+    else:
+        return generate_demo_config(client_ip)
 
 def save_user_to_db(user: types.User):
     """Сохраняем пользователя в таблицу users, если его нет"""
@@ -137,7 +230,9 @@ async def provision_and_send(chat_id: int, user: types.User, plan_key: str):
     # Генерируем IP в подсети (только для теста)
     last_octet = secrets.randbelow(200) + 10
     client_ip = f"10.66.66.{last_octet}"
-    config = generate_client_config(client_ip)
+    
+    # Генерируем конфиг через wgREST (реальный) или демо
+    config = generate_client_config(user.id, client_ip)
 
     # Сохраняем в базу
     save_subscription_to_db(user, plan_key, client_ip, config)
@@ -221,9 +316,9 @@ async def callback_status(call: types.CallbackQuery):
             plan_name, client_ip, created_at = sub
             created_str = created_at.strftime("%Y-%m-%d %H:%M:%S")
             await call.message.answer(f"🔔 Текущая подписка: *{plan_name}*\nIP: `{client_ip}`\nДата: {created_str}",
-                                      parse_mode="Markdown")
+                                      parse_mode="Markdown", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Главное меню", callback_data="menu_main")))
         else:
-            await call.message.answer("У вас пока нет активной подписки.")
+            await call.message.answer("У вас пока нет активной подписки.", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Главное меню", callback_data="menu_main")))
     except Exception as e:
         print("status error:", e)
         await call.message.answer("Ошибка при получении статуса подписки. Попробуйте позже.")
@@ -295,7 +390,23 @@ async def help_contact(call: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "menu_main")
 async def back_to_main(call: types.CallbackQuery):
     await call.answer()
-    await cmd_start(call.message)
+    # Создаем новое сообщение вместо редактирования
+    user_name = call.from_user.first_name or "друг"
+    welcome_text = (
+        f"Привет, {user_name} 👋\n\n"
+        "Наш VPN поможет вам:\n\n"
+        "➩ Избавиться от рекламы и блокировок\n"
+        "➩ Поддерживать стабильное соединение\n"
+        "➩ Работать безопасно и анонимно\n\n"
+        "⇩ Главное меню ⇩"
+    )
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        InlineKeyboardButton("Выбрать план VPN", callback_data="menu_buy"),
+        InlineKeyboardButton("Статус подписки", callback_data="menu_status"),
+        InlineKeyboardButton("Помощь", callback_data="menu_help")
+    )
+    await call.message.edit_text(welcome_text, reply_markup=keyboard)
 
 # --- Platform-specific instructions ---
 @dp.callback_query_handler(lambda c: c.data == "connect_android")

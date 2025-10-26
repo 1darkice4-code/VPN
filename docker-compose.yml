@@ -1,6 +1,7 @@
 version: "3.8"
 
 services:
+  # PostgreSQL база данных
   db:
     image: postgres:12
     container_name: vpn_db
@@ -11,48 +12,84 @@ services:
       POSTGRES_PASSWORD: post123
     volumes:
       - db_data:/var/lib/postgresql/data
+      - ./SQL:/docker-entrypoint-initdb.d
+    networks:
+      - vpn_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vpn_bot_user -d vpn_bot_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
-  vpn_bot:
-    build: ./vpn_bot
-    container_name: vpn_bot
-    depends_on:
-      - db
-      - wg
-    env_file:
-      - ./vpn_bot/.env
-    volumes:
-      - ./wg_configs:/app/wg_configs
-      - ./wg:/wg
-    working_dir: /app
-    command: python bot.py
-
+  # WireGuard VPN сервер
   wg:
-    image: linuxserver/wireguard
+    image: linuxserver/wireguard:latest
     container_name: wg
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Moscow
+      - SERVERURL=wg.example.com
+      - SERVERPORT=51830
+      - PEERS=10
+      - PEERDNS=1.1.1.1
+      - INTERNAL_SUBNET=10.66.66.0
     volumes:
       - ./wg:/config
     ports:
       - "51830:51830/udp"
     sysctls:
       - net.ipv4.conf.all.src_valid_mark=1
+    networks:
+      - vpn_network
     restart: unless-stopped
 
+  # REST API для управления WireGuard
   wgrest:
     build: ./wgrest
     container_name: wgrest
+    depends_on:
+      - wg
     ports:
-      - "5000:5000"
+      - "8080:8000"
     environment:
-      WG_CONFIG_PATH: /config
+      WGREST_LISTEN: 0.0.0.0:8000
       WGREST_DATA_DIR: /var/lib/wgrest
     volumes:
       - ./wg:/config
       - wgrest_data:/var/lib/wgrest
-    user: "1000:1000"
+    networks:
+      - vpn_network
     restart: unless-stopped
+
+  # Telegram бот
+  vpn_bot:
+    build: ./vpn_bot
+    container_name: vpn_bot
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ./vpn_bot/.env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: vpn_bot_db
+      DB_USER: vpn_bot_user
+      DB_PASSWORD: post123
+    volumes:
+      - ./wg:/wg
+    working_dir: /app
+    networks:
+      - vpn_network
+    restart: unless-stopped
+
+networks:
+  vpn_network:
+    driver: bridge
 
 volumes:
   db_data:

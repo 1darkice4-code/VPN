@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Environment
+.env
+*.env
+!.env.example
+!env.example
+
+# Docker
+.vscode/
+.idea/
+
+# Data
+wg/
+*.conf
+*.png
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
