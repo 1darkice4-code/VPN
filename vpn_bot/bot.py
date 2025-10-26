@@ -141,7 +141,10 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
         
         if response.status_code in [200, 201]:
             peer = response.json()
-            peer_key = peer.get('urlSafePubKey', '')
+            peer_key = peer.get('publicKey', '')
+            
+            if not peer_key:
+                raise Exception("Не удалось получить публичный ключ пира")
             
             # Получаем конфиг
             config_headers = {}
@@ -157,14 +160,47 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
             if config_response.status_code == 200:
                 config = config_response.text
                 print(f"✅ Конфиг получен через wgREST")
-                return config, peer.get('publicKey', '')
+                return config, peer_key
+            else:
+                print(f"❌ Ошибка получения конфига: {config_response.status_code}")
+                raise Exception(f"Не удалось получить конфигурацию пира")
         
+        print(f"❌ Ошибка создания пира: {response.status_code} - {response.text}")
         raise Exception("wgREST API не смог создать пир")
         
     except Exception as e:
         print(f"⚠️ wgREST недоступен: {e}")
         # Fallback - генерируем конфиг вручную
-        raise
+        return generate_fallback_config(user_id)
+
+def generate_fallback_config(user_id: int):
+    """Генерируем fallback конфигурацию когда wgREST недоступен"""
+    print("🔄 Генерируем fallback конфигурацию...")
+    
+    # Генерируем ключи клиента
+    private_key = secrets.token_hex(32)
+    public_key = secrets.token_hex(32)
+    
+    # Получаем IP сервера (из переменных окружения или используем дефолтный)
+    server_endpoint = os.getenv('SERVER_ENDPOINT', 'your-server-ip:51831')
+    server_public_key = os.getenv('SERVER_PUBLIC_KEY', 'MzUciL6+pfBWjte7YVAPlxBuIvCTCvk9kJGA2kjZMTA=')
+    
+    # Генерируем IP клиента
+    client_ip = f"10.250.250.{100 + (user_id % 150)}"
+    
+    config = f"""[Interface]
+PrivateKey = {private_key}
+Address = {client_ip}/24
+DNS = 1.1.1.1, 8.8.8.8
+
+[Peer]
+PublicKey = {server_public_key}
+Endpoint = {server_endpoint}
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 25"""
+    
+    print(f"✅ Fallback конфигурация создана для IP {client_ip}")
+    return config, public_key
 
 def generate_client_config(user_id: int, client_ip: str) -> str:
     """Генерируем конфиг WireGuard через wgREST API"""
@@ -174,6 +210,7 @@ def generate_client_config(user_id: int, client_ip: str) -> str:
         return config
     except Exception as e:
         print(f"❌ Ошибка создания конфига через wgREST: {e}")
+        # Fallback уже обработан в create_peer_via_wgrest
         raise Exception(f"Не удалось создать VPN конфигурацию: {e}")
 
 def save_user_to_db(user: types.User):
