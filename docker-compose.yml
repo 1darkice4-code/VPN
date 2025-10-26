@@ -21,9 +21,9 @@ services:
       timeout: 5s
       retries: 10
 
-  # WireGuard VPN сервер
+  # WireGuard VPN сервер (управляется через wgREST)
   wg:
-    image: linuxserver/wireguard:latest
+    image: lscr.io/linuxserver/wireguard:latest
     container_name: wg
     cap_add:
       - NET_ADMIN
@@ -34,8 +34,6 @@ services:
       - TZ=Europe/Moscow
       - SERVERURL=wg.example.com
       - SERVERPORT=51830
-      - PEERS=10
-      - PEERDNS=1.1.1.1
       - INTERNAL_SUBNET=10.66.66.0
     volumes:
       - ./wg:/config
@@ -46,6 +44,7 @@ services:
     networks:
       - vpn_network
     restart: unless-stopped
+    # НЕ используем PEERS=10 - будем создавать пиров через wgREST
 
   # REST API для управления WireGuard
   wgrest:
@@ -57,6 +56,11 @@ services:
       - NET_ADMIN
       - NET_RAW
       - SYS_MODULE
+    ports:
+      - "8080:8000"
+    environment:
+      WGREST_LISTEN: 0.0.0.0:8000
+      WGREST_DATA_DIR: /var/lib/wgrest
     volumes:
       - ./wg:/config
       - wgrest_data:/var/lib/wgrest
