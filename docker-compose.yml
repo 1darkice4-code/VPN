@@ -34,11 +34,10 @@ services:
       - TZ=Europe/Moscow
       - SERVERURL=wg.example.com
       - SERVERPORT=51830
-      - INTERNAL_SUBNET=10.66.66.0/24  # обязательно с маской подсети
-      - PEERS=0                        # создаём интерфейс без клиентов
-      - PRIVATE_KEY=autogen            # генерация ключа при старте
+      - INTERNAL_SUBNET=10.66.66.0
     volumes:
       - ./wg:/config
+      - ./wg-init:/docker-entrypoint-init.d  # скрипт для автоматического создания wg0.conf
     ports:
       - "51830:51830/udp"
     sysctls:
@@ -57,13 +56,13 @@ services:
       - NET_ADMIN
       - NET_RAW
       - SYS_MODULE
-    network_mode: host  # доступ к интерфейсу WireGuard на хосте
+    network_mode: host
     environment:
       WGREST_LISTEN: 0.0.0.0:8080
-      WGREST_DATA_DIR: /config  # путь к конфигу WireGuard
+      WGREST_DATA_DIR: /config
       WGREST_STATIC_AUTH_TOKEN: "b1g5r4nd0mt0k3n12345"
     volumes:
-      - ./wg:/config  # монтируем конфиг WireGuard
+      - ./wg:/config
     restart: unless-stopped
 
   # Telegram бот
