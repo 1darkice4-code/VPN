@@ -21,7 +21,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # WireGuard VPN сервер (управляется через wgREST)
+  # WireGuard VPN сервер
   wg:
     image: lscr.io/linuxserver/wireguard:latest
     container_name: wg
@@ -44,27 +44,6 @@ services:
     networks:
       - vpn_network
     restart: unless-stopped
-    # НЕ используем PEERS=10 - будем создавать пиров через wgREST
-
-  # REST API для управления WireGuard
-  wgrest:
-    build: ./wgrest
-    container_name: wgrest
-    depends_on:
-      - wg
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-      - SYS_MODULE
-    network_mode: host  # Используем host network для доступа к WireGuard
-    environment:
-      WGREST_LISTEN: 0.0.0.0:8080
-      WGREST_DATA_DIR: /var/lib/wgrest
-      WGREST_STATIC_AUTH_TOKEN: "b1g5r4nd0mt0k3n12345"  # Токен для API
-    volumes:
-      - ./wg:/config
-      - wgrest_data:/var/lib/wgrest
-    restart: unless-stopped
 
   # Telegram бот
   vpn_bot:
@@ -73,7 +52,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      wgrest:
+      wg:
         condition: service_started
     env_file:
       - ./vpn_bot/.env
@@ -83,13 +62,10 @@ services:
       DB_NAME: vpn_bot_db
       DB_USER: vpn_bot_user
       DB_PASSWORD: post123
-      WGREST_URL: http://host.docker.internal:8080  # Доступ к host network из контейнера
-      WGREST_AUTH_TOKEN: b1g5r4nd0mt0k3n12345  # Токен для wgREST API
+      WG_CONFIG_DIR: /wg  # директория с конфигами WireGuard
     volumes:
       - ./wg:/wg
     working_dir: /app
-    extra_hosts:
-      - "host.docker.internal:host-gateway"  # Для доступа к хосту
     networks:
       - vpn_network
     restart: unless-stopped
@@ -100,4 +76,3 @@ networks:
 
 volumes:
   db_data:
-  wgrest_data:
