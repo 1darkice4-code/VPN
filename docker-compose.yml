@@ -56,14 +56,14 @@ services:
       - NET_ADMIN
       - NET_RAW
       - SYS_MODULE
-    network_mode: "container:wg"  # <- Используем сетевой стек wg
+    network_mode: "container:wg"  # Используем сетевой стек wg
     environment:
       WGREST_LISTEN: 0.0.0.0:8080
       WGREST_DATA_DIR: /config
       WGREST_STATIC_AUTH_TOKEN: "b1g5r4nd0mt0k3n12345"
     volumes:
       - ./wg:/config
-      - /dev/net:/dev/net       # <- доступ к туннельному устройству
+      - /dev/net:/dev/net
     restart: unless-stopped
 
   # Telegram бот
@@ -83,13 +83,11 @@ services:
       DB_NAME: vpn_bot_db
       DB_USER: vpn_bot_user
       DB_PASSWORD: post123
-      WGREST_URL: http://host.docker.internal:8080
+      WGREST_URL: http://wgrest:8080   # <- обращаемся по имени сервиса
       WGREST_AUTH_TOKEN: b1g5r4nd0mt0k3n12345
     volumes:
       - ./wg:/wg
     working_dir: /app
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       - vpn_network
     restart: unless-stopped
