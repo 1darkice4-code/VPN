@@ -72,6 +72,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      wgrest:
+        condition: service_started
     env_file:
       - ./vpn_bot/.env
     environment:
@@ -80,9 +82,12 @@ services:
       DB_NAME: vpn_bot_db
       DB_USER: vpn_bot_user
       DB_PASSWORD: post123
+      WGREST_URL: http://host.docker.internal:8080  # Доступ к host network из контейнера
     volumes:
       - ./wg:/wg
     working_dir: /app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Для доступа к хосту
     networks:
       - vpn_network
     restart: unless-stopped
