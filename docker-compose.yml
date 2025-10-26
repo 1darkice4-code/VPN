@@ -21,7 +21,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # WireGuard VPN сервер (управляется через wgREST)
+  # WireGuard VPN сервер
   wg:
     image: lscr.io/linuxserver/wireguard:latest
     container_name: wg
@@ -44,7 +44,7 @@ services:
     networks:
       - vpn_network
     restart: unless-stopped
-    # НЕ используем PEERS=10 - будем создавать пиров через wgREST
+    # PEERS=10 не задаём — будем добавлять пиров через wgREST
 
   # REST API для управления WireGuard
   wgrest:
@@ -56,14 +56,13 @@ services:
       - NET_ADMIN
       - NET_RAW
       - SYS_MODULE
-    network_mode: host
+    network_mode: host  # доступ к интерфейсу WireGuard на хосте
     environment:
       WGREST_LISTEN: 0.0.0.0:8080
-      WGREST_DATA_DIR: /var/lib/wgrest
+      WGREST_DATA_DIR: /config  # указываем путь к конфигу WireGuard
       WGREST_STATIC_AUTH_TOKEN: "b1g5r4nd0mt0k3n12345"
     volumes:
-      - ./wg:/config
-      - wgrest_data:/var/lib/wgrest
+      - ./wg:/config  # монтируем конфиг WireGuard
     restart: unless-stopped
 
   # Telegram бот
