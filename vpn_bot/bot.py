@@ -153,8 +153,11 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
             raise Exception(f"Не удалось получить публичный ключ пира из ответа wgREST: {peer_data}")
 
         # Получаем конфиг
+        from urllib.parse import quote
+
+        peer_key_safe = quote(peer_key, safe='')
         config_response = requests.get(
-            f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/{peer_key}/quick.conf",
+            f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/{peer_key_safe}/quick.conf",
             headers=headers,
             timeout=10
         )
