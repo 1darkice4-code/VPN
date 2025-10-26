@@ -102,7 +102,7 @@ def check_wg_device():
     headers = {}
     if WGREST_AUTH_TOKEN:
         headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
-    
+
     try:
         response = requests.get(f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/", headers=headers, timeout=5)
         if response.status_code == 200:
@@ -143,7 +143,8 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
         if response.status_code in [200, 201]:
             peer_list = response.json()  # это список пиров
             if isinstance(peer_list, list) and len(peer_list) > 0:
-                peer_key = peer_list[0].get("publicKey")
+                # Берем реальный ключ пира wgREST
+                peer_key = peer_list[0].get("public_key") or peer_list[0].get("publicKey")
             else:
                 raise Exception("Не удалось получить публичный ключ пира")
 
@@ -173,17 +174,17 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
 def generate_fallback_config(user_id: int):
     """Генерируем fallback конфигурацию когда wgREST недоступен"""
     print("🔄 Генерируем fallback конфигурацию...")
-    
+
     # Генерируем ключи клиента
     private_key, public_key = generate_keys()
-    
+
     # Получаем IP сервера (из переменных окружения или используем дефолтный)
     server_endpoint = os.getenv('SERVER_ENDPOINT', 'your-server-ip:51831')
     server_public_key = os.getenv('SERVER_PUBLIC_KEY', 'MzUciL6+pfBWjte7YVAPlxBuIvCTCvk9kJGA2kjZMTA=')
-    
+
     # Генерируем IP клиента
     client_ip = f"10.250.250.{100 + (user_id % 150)}"
-    
+
     config = f"""[Interface]
 PrivateKey = {private_key}
 Address = {client_ip}/24
@@ -194,7 +195,7 @@ PublicKey = {server_public_key}
 Endpoint = {server_endpoint}
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25"""
-    
+
     print(f"✅ Fallback конфигурация создана для IP {client_ip}")
     return config, public_key
 
@@ -249,7 +250,7 @@ async def provision_and_send(chat_id: int, user: types.User, plan_key: str):
         # Генерируем IP в подсети
         last_octet = secrets.randbelow(200) + 10
         client_ip = f"10.66.66.{last_octet}"
-        
+
         # Генерируем конфиг через wgREST
         config = generate_client_config(user.id, client_ip)
 
@@ -278,11 +279,11 @@ async def provision_and_send(chat_id: int, user: types.User, plan_key: str):
             await bot.send_document(chat_id, bio)
         except Exception as e:
             print("send_document error:", e)
-            
+
     except Exception as e:
         print(f"❌ Ошибка создания конфига: {e}")
         await bot.send_message(
-            chat_id, 
+            chat_id,
             f"❌ Ошибка создания VPN конфигурации: {str(e)}\n\n"
             "Попробуйте позже или обратитесь в поддержку: @Jotaro1707"
         )
