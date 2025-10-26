@@ -144,18 +144,20 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
         peer_data = response.json()
 
         # Определяем ключ из ответа
+        # Определяем ключ из ответа
+        peer_key = None
         if isinstance(peer_data, dict):
             peer_key = peer_data.get("url_safe_public_key") or peer_data.get("public_key")
-        else:
-            peer_key = None
+        elif isinstance(peer_data, list) and len(peer_data) > 0:
+            peer_key = peer_data[0].get("url_safe_public_key") or peer_data[0].get("public_key")
 
         if not peer_key:
             raise Exception(f"Не удалось получить публичный ключ пира из ответа wgREST: {peer_data}")
 
-        # Получаем конфиг
+        # URL-энкодинг ключа
         from urllib.parse import quote
-
         peer_key_safe = quote(peer_key, safe='')
+
         config_response = requests.get(
             f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/{peer_key_safe}/quick.conf",
             headers=headers,
