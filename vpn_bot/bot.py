@@ -87,7 +87,7 @@ PLANS = {
 # Вспомогательные функции
 # ===============================
 
-def create_wg_device():
+def check_wg_device():
     """Проверяем существование WireGuard устройства"""
     headers = {}
     if WGREST_AUTH_TOKEN:
@@ -96,10 +96,10 @@ def create_wg_device():
     try:
         response = requests.get(f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/", headers=headers, timeout=5)
         if response.status_code == 200:
-            print(f"✅ Устройство {WGREST_DEVICE} существует")
+            print(f"✅ Устройство {WGREST_DEVICE} доступно")
             return True
         else:
-            print(f"❌ Устройство {WGREST_DEVICE} не найдено (статус: {response.status_code})")
+            print(f"❌ Устройство {WGREST_DEVICE} недоступно (статус: {response.status_code})")
             return False
     except Exception as e:
         print(f"❌ Ошибка проверки устройства: {e}")
@@ -121,9 +121,9 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
         except:
             raise Exception("wgREST недоступен, используем fallback")
         
-        # 2. Проверяем существование устройства
-        if not create_wg_device():
-            raise Exception("WireGuard устройство не найдено. Обратитесь к администратору.")
+        # 2. Проверяем доступность устройства
+        if not check_wg_device():
+            raise Exception("WireGuard устройство недоступно. Проверьте, что WireGuard сервис запущен.")
         
         # 3. Создаем пира через API
         peer_name = f"user_{user_id}_{secrets.token_hex(4)}"

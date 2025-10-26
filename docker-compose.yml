@@ -21,7 +21,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # REST API для управления WireGuard (основной сервис)
+  # REST API для управления WireGuard (работает с системным WireGuard)
   wgrest:
     build: ./wgrest
     container_name: wgrest
@@ -29,16 +29,14 @@ services:
       - NET_ADMIN
       - NET_RAW
       - SYS_MODULE
-    network_mode: host  # Используем host network для доступа к WireGuard
+    network_mode: host  # Доступ к системному WireGuard
     environment:
       WGREST_LISTEN: 0.0.0.0:8080
       WGREST_DATA_DIR: /var/lib/wgrest
       WGREST_STATIC_AUTH_TOKEN: "b1g5r4nd0mt0k3n12345"
     volumes:
       - wgrest_data:/var/lib/wgrest
-      - /dev/net:/dev/net
-    ports:
-      - "51830:51830/udp"  # WireGuard порт
+      - /dev/net:/dev/net  # Доступ к WireGuard интерфейсам
     restart: unless-stopped
 
   # Telegram бот
@@ -60,11 +58,9 @@ services:
       DB_PASSWORD: post123
       WGREST_URL: http://host.docker.internal:8080
       WGREST_AUTH_TOKEN: b1g5r4nd0mt0k3n12345
-    volumes:
-      - ./wg:/wg
     working_dir: /app
     extra_hosts:
-      - "host.docker.internal:host-gateway"  # Для доступа к хосту
+      - "host.docker.internal:host-gateway"
     networks:
       - vpn_network
     restart: unless-stopped
