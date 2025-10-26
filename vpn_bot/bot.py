@@ -241,38 +241,47 @@ def save_subscription_to_db(user: types.User, plan_key: str, client_ip: str, con
 # ===============================
 # Отправка конфига (основная логика)
 # ===============================
-async def provision_and_send(chat_id: int, user: types.User, plan_key: str):
-    """Генерируем конфиг и отправляем пользователю; сохраняем в БД"""
+async def provision_and_send_all(chat_id: int, user: types.User, plan_key: str):
+    """Генерируем 7 конфигов для подписки и отправляем пользователю"""
     plan = PLANS.get(plan_key)
     if not plan:
         await bot.send_message(chat_id, "❌ Ошибка: выбран неверный план.")
         return
 
-    try:
-        # Генерируем IP в подсети
-        last_octet = secrets.randbelow(200) + 10
-        client_ip = f"10.66.66.{last_octet}"
+    configs = []
+    used_ips = set()
 
-        # Генерируем конфиг через wgREST
-        config = generate_client_config(user.id, client_ip)
+    for i in range(7):  # 7 устройств
+        # Генерация уникального IP в подсети
+        while True:
+            last_octet = secrets.randbelow(200) + 10
+            client_ip = f"10.66.66.{last_octet}"
+            if client_ip not in used_ips:
+                used_ips.add(client_ip)
+                break
 
-        # Сохраняем в базу
+        # Генерация конфига через wgREST или fallback
+        config = generate_client_config(user.id * 10 + i, client_ip)
+
+        # Сохраняем подписку в БД
         save_subscription_to_db(user, plan_key, client_ip, config)
 
-        # Отправляем конфиг как текст и как файл (.conf)
+        configs.append((client_ip, config))
+
+    # Отправляем пользователю все 7 конфигов
+    for client_ip, config in configs:
         try:
-            # Отправляем текст в pre-блоке
+            # Текстовое сообщение
             await bot.send_message(
                 chat_id,
-                f"✅ Ваш конфиг для *{plan['name']}* готов:\n\n<pre>{config}</pre>",
+                f"✅ Конфиг для IP `{client_ip}`:\n\n<pre>{config}</pre>",
                 parse_mode="HTML"
             )
         except Exception:
-            # fallback plain
-            await bot.send_message(chat_id, f"Ваш конфиг для {plan['name']} готов. (Не удалось отформатировать пред.)")
+            await bot.send_message(chat_id, f"Конфиг для {client_ip} готов (plain text)")
 
-        # Дополнительно отправим файл .conf
         try:
+            # Отправка файла .conf
             from io import BytesIO
             bio = BytesIO()
             bio.write(config.encode())
@@ -281,14 +290,6 @@ async def provision_and_send(chat_id: int, user: types.User, plan_key: str):
             await bot.send_document(chat_id, bio)
         except Exception as e:
             print("send_document error:", e)
-
-    except Exception as e:
-        print(f"❌ Ошибка создания конфига: {e}")
-        await bot.send_message(
-            chat_id,
-            f"❌ Ошибка создания VPN конфигурации: {str(e)}\n\n"
-            "Попробуйте позже или обратитесь в поддержку: @Jotaro1707"
-        )
 
 # ===============================
 # Хендлеры: меню, покупки, инструкции
@@ -329,8 +330,8 @@ async def callback_buy(call: types.CallbackQuery):
 @dp.callback_query_handler(lambda call: call.data.startswith("buy_"))
 async def process_buy(call: types.CallbackQuery):
     plan_key = call.data.split("_", 1)[1]
-    await call.answer("Генерируем конфиг…")
-    await provision_and_send(call.from_user.id, call.from_user, plan_key)
+    await call.answer("Генерируем 7 конфигов…")
+    await provision_and_send_all(call.from_user.id, call.from_user, plan_key)
 
 # --- Status ---
 @dp.callback_query_handler(lambda c: c.data == "menu_status")
