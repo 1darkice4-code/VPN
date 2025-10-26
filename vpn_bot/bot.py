@@ -128,8 +128,8 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
         # 3. Создаем пира через API
         peer_name = f"user_{user_id}_{secrets.token_hex(4)}"
         
-        # Генерируем IP для клиента (10.66.66.10-210)
-        client_ip = f"10.66.66.{10 + (user_id % 200)}/32"
+        # Генерируем IP для клиента (10.250.250.10-250) в подсети сервера
+        client_ip = f"10.250.250.{10 + (user_id % 240)}/32"
         
         headers = {"Content-Type": "application/json"}
         if WGREST_AUTH_TOKEN:
@@ -196,8 +196,8 @@ def generate_fallback_config(user_id: int):
     server_endpoint = os.getenv('SERVER_ENDPOINT', 'your-server-ip:51831')
     server_public_key = os.getenv('SERVER_PUBLIC_KEY', 'MzUciL6+pfBWjte7YVAPlxBuIvCTCvk9kJGA2kjZMTA=')
     
-    # Генерируем IP клиента
-    client_ip = f"10.250.250.{100 + (user_id % 150)}"
+    # Генерируем IP клиента в подсети сервера
+    client_ip = f"10.250.250.{10 + (user_id % 240)}"
     
     config = f"""[Interface]
 PrivateKey = {private_key}
@@ -261,9 +261,9 @@ async def provision_and_send(chat_id: int, user: types.User, plan_key: str):
         return
 
     try:
-        # Генерируем IP в подсети
-        last_octet = secrets.randbelow(200) + 10
-        client_ip = f"10.66.66.{last_octet}"
+        # Генерируем IP в подсети сервера (10.250.250.X)
+        last_octet = secrets.randbelow(240) + 10
+        client_ip = f"10.250.250.{last_octet}"
         
         # Генерируем конфиг через wgREST
         config = generate_client_config(user.id, client_ip)
