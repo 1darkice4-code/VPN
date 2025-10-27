@@ -295,22 +295,40 @@ async def provision_and_send(chat_id: int, user: types.User, plan_key: str):
             # Сохраняем конфиг для отправки
             configs_dict[key_num] = config
         
-        # Отправляем сообщение с кнопками deep links
-        text = (
-            "🔐 Готово! Нажмите на кнопки ниже, чтобы добавить VPN в WireGuard:\n\n"
+        # Отправляем информационное сообщение
+        info_text = (
+            "🔐 Вы получили 7 конфигураций!\n\n"
             "⚠️ **Помните: 1 конфигурация = 1 устройство**\n\n"
-            "Просто нажмите на нужную кнопку — конфигурация откроется в WireGuard автоматически!"
+            "Для каждой конфигурации вы получите:\n"
+            "• 📄 Файл .conf (для всех устройств)\n"
+            "• 📱 Deep link (для мобильных устройств - Android/iOS)\n\n"
+            "На мобильном устройстве просто нажмите на ссылку!"
         )
-        keyboard = InlineKeyboardMarkup(row_width=2)
+        await bot.send_message(chat_id, info_text, parse_mode="Markdown")
         
+        # Отправляем каждую конфигурацию как файл
         for key_num in range(1, 8):
             config = configs_dict[key_num]
-            link = generate_wireguard_link(f"VPN Ключ {key_num}", config)
-            keyboard.add(InlineKeyboardButton(f"🔑 Ключ {key_num}", url=link))
-        
-        keyboard.add(InlineKeyboardButton("🔙 Главное меню", callback_data="menu_main"))
-        
-        await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
+            
+            try:
+                from io import BytesIO
+                bio = BytesIO()
+                bio.write(config.encode())
+                bio.seek(0)
+                bio.name = f"wg_key_{key_num}.conf"
+                
+                await bot.send_document(chat_id, bio, caption=f"🔑 Ключ {key_num} для {plan['name']}")
+                
+                # Отправляем deep link для мобильных устройств
+                link = generate_wireguard_link(f"VPN Ключ {key_num}", config)
+                await bot.send_message(
+                    chat_id,
+                    f"📱 Для подключения на мобильном устройстве (Android/iOS) нажмите на ссылку ниже:\n\n"
+                    f"{link}\n\n"
+                    "💡 Работает только с мобильных устройств!"
+                )
+            except Exception as e:
+                print(f"send_document error for key {key_num}:", e)
             
     except Exception as e:
         print(f"❌ Ошибка создания конфига: {e}")
@@ -417,20 +435,31 @@ async def callback_send_key(call: types.CallbackQuery):
         if result:
             config = result[0]
             
-            # Генерируем deep link и отправляем кнопку
-            link = generate_wireguard_link(f"VPN Ключ {key_num}", config)
-            keyboard = InlineKeyboardMarkup().add(
-                InlineKeyboardButton(f"🔑 Подключить ключ {key_num}", url=link),
-                InlineKeyboardButton("🔙 Главное меню", callback_data="menu_main")
-            )
-            
-            await bot.send_message(
-                call.from_user.id,
-                f"🔑 Нажмите кнопку ниже, чтобы добавить **Ключ {key_num}** в WireGuard:\n\n"
-                "⚠️ **Напоминание:** 1 конфигурация = 1 устройство",
-                reply_markup=keyboard,
-                parse_mode="Markdown"
-            )
+            # Отправляем конфиг как файл
+            try:
+                from io import BytesIO
+                bio = BytesIO()
+                bio.write(config.encode())
+                bio.seek(0)
+                bio.name = f"wg_key_{key_num}.conf"
+                
+                await bot.send_document(
+                    call.from_user.id, 
+                    bio, 
+                    caption=f"🔑 Ключ {key_num}\n\n⚠️ Напоминание: 1 конфигурация = 1 устройство"
+                )
+                
+                # Отправляем deep link для мобильных устройств
+                link = generate_wireguard_link(f"VPN Ключ {key_num}", config)
+                await bot.send_message(
+                    call.from_user.id,
+                    f"📱 Для подключения на мобильном устройстве (Android/iOS) нажмите на ссылку ниже:\n\n"
+                    f"{link}\n\n"
+                    "💡 Работает только с мобильных устройств!"
+                )
+            except Exception as e:
+                print(f"send_document error for key {key_num}:", e)
+                await call.message.answer("❌ Ошибка при отправке ключа. Попробуйте позже.")
         else:
             await call.message.answer("❌ Этот ключ не найден.", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Главное меню", callback_data="menu_main")))
     except Exception as e:
