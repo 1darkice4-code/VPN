@@ -23,7 +23,7 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}     # Приватный ключ
           port: 22
           script: |
-            cd ~/project_root          # переход в корень монорепозитория
+            cd ~/VPN          # переход в корень монорепозитория
             git pull origin main       # подтягиваем свежий код
             docker compose down        # останавливаем старые контейнеры
             docker compose up -d --build   # пересобираем и запускаем
