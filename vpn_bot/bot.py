@@ -11,6 +11,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils import executor
 import psycopg2
 from dotenv import load_dotenv
+from typing import Tuple
 
 # Загружаем переменные окружения из .env файла
 load_dotenv()
@@ -251,7 +252,7 @@ PersistentKeepalive = 25"""
     print(f"✅ Fallback конфигурация создана для IP {client_ip}")
     return config, public_key
 
-def generate_client_config(user_id: int, client_ip: str) -> tuple[str, str]:
+def generate_client_config(user_id: int, client_ip: str) -> Tuple[str, str]:
     """Генерируем конфиг WireGuard через wgREST API"""
     try:
         # Используем wgREST для создания реального пира
