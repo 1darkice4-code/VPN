@@ -9,7 +9,7 @@ LOG_FILE="/var/log/wireguard_install.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 DEVICE_NAME="wg0"
-LISTEN_PORT="51830"
+LISTEN_PORT="51831"
 CONFIG_DIR="/etc/wireguard"
 CONFIG_FILE="$CONFIG_DIR/$DEVICE_NAME.conf"
 SERVICE_NAME="wg-quick@$DEVICE_NAME"
@@ -45,21 +45,10 @@ if [ -z "$DEFAULT_IFACE" ]; then
 fi
 echo "🌐 Основной интерфейс: $DEFAULT_IFACE"
 
-# Поиск свободной подсети (чтобы не конфликтовать с Docker)
-echo "🔍 Подбор свободной подсети..."
-for NET in 10.44.44 10.55.55 10.66.66 10.77.77 10.88.88 10.99.99; do
-    if ! ip addr | grep -q "${NET}"; then
-        WG_NET="${NET}.0/24"
-        WG_IP="${NET}.1/24"
-        break
-    fi
-done
-
-if [ -z "${WG_NET:-}" ]; then
-    echo "❌ Не удалось найти свободную подсеть для WireGuard"
-    exit 1
-fi
-echo "✅ Выбрана подсеть: $WG_NET"
+# Используем фиксированную подсеть как в коде бота
+WG_NET="10.66.66.0/24"
+WG_IP="10.66.66.1/24"
+echo "✅ Используем подсеть: $WG_NET (как в коде бота)"
 
 # Генерация ключей
 PRIVATE_KEY_FILE="$CONFIG_DIR/${DEVICE_NAME}_private.key"

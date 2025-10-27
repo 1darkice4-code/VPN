@@ -33,7 +33,7 @@
 
 4. Обновите настройки WireGuard сервера:
    ```env
-   WG_SERVER_ENDPOINT=ваш_реальный_ip:51830
+   WG_SERVER_ENDPOINT=ваш_реальный_ip:51831
    WG_SERVER_PUBLIC_KEY=публичный_ключ_сервера
    ```
 
@@ -90,7 +90,7 @@ VPN/
 
 - **Telegram Bot**: Работает автоматически после настройки токена
 - **PostgreSQL**: `localhost:5432`
-- **WireGuard**: `localhost:51830/udp`
+- **WireGuard**: `localhost:51831/udp`
 - **wgREST API**: `http://localhost:8080`
 
 ## 🔧 API Endpoints (wgREST)
@@ -167,7 +167,7 @@ go build -o wgrest ./cmd/wgrest-server
 ### WireGuard не работает
 
 1. Проверьте права на папку `wg/`
-2. Убедитесь, что порт 51830 открыт
+2. Убедитесь, что порт 51831 открыт
 3. Проверьте логи: `docker-compose logs wg`
 
 ### БД не инициализируется

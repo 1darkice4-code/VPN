@@ -31,7 +31,7 @@ sudo usermod -aG docker $USER
 
 ```bash
 # Открыть необходимые порты
-sudo ufw allow 51830/udp    # WireGuard
+sudo ufw allow 51831/udp    # WireGuard
 sudo ufw allow 8080/tcp      # wgREST API
 sudo ufw allow 22/tcp        # SSH
 sudo ufw enable
@@ -282,7 +282,7 @@ docker exec vpn_db psql -U vpn_bot_user -d vpn_bot_db -c "SELECT * FROM users LI
 docker exec wg cat /config/wg0.conf
 
 # Проверьте порт
-sudo netstat -ulnp | grep 51830
+sudo netstat -ulnp | grep 51831
 
 # Перезапустите контейнер
 docker-compose restart wg

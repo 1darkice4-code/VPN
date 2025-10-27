@@ -232,7 +232,7 @@ def generate_fallback_config(user_id: int):
     public_key = subprocess.check_output(['wg', 'pubkey'], input=private_key.encode()).strip().decode()
 
     # Получаем IP сервера (из переменных окружения или используем дефолтный)
-    server_endpoint = os.getenv('SERVER_ENDPOINT', 'your-server-ip:51830')
+    server_endpoint = os.getenv('SERVER_ENDPOINT', 'your-server-ip:51831')
     server_public_key = os.getenv('SERVER_PUBLIC_KEY', 'MzUciL6+pfBWjte7YVAPlxBuIvCTCvk9kJGA2kjZMTA=')
     
     # Генерируем IP клиента в подсети сервера
@@ -398,9 +398,6 @@ async def provision_and_send(chat_id: int, user: types.User, plan_key: str):
         await bot.send_message(chat_id, "❌ Ошибка: выбран неверный план.")
         return
 
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(user.id)
-
     try:
         # Определяем количество конфигураций в зависимости от плана
         max_devices = plan.get('devices', 1)
@@ -464,9 +461,6 @@ async def cmd_start(message: types.Message):
     user_name = message.from_user.first_name or "друг"
     save_user_to_db(message.from_user)
 
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(message.from_user.id)
-
     welcome_text = (
         f"Привет, {user_name} 👋\n\n"
         "Наш VPN поможет вам:\n\n"
@@ -491,9 +485,6 @@ async def cmd_start(message: types.Message):
 async def callback_buy(call: types.CallbackQuery):
     await call.answer()
     
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(call.from_user.id)
-    
     text = (
         "📋 **Выберите тип подписки:**\n\n"
         "👤 **Личный план** - для одного устройства\n"
@@ -516,9 +507,6 @@ async def callback_buy(call: types.CallbackQuery):
 async def callback_personal_plans(call: types.CallbackQuery):
     await call.answer()
     
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(call.from_user.id)
-    
     text = (
         "👤 **Личные планы**\n\n"
         "📱 **Для одного устройства**\n"
@@ -540,9 +528,6 @@ async def callback_personal_plans(call: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "plan_family")
 async def callback_family_plans(call: types.CallbackQuery):
     await call.answer()
-    
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(call.from_user.id)
     
     text = (
         "👨‍👩‍👧‍👦 **Семейные планы**\n\n"
@@ -571,9 +556,6 @@ async def process_buy(call: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "menu_keys")
 async def callback_keys(call: types.CallbackQuery):
     await call.answer()
-    
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(call.from_user.id)
     
     try:
         # Проверяем, есть ли у пользователя конфигурации
@@ -678,9 +660,6 @@ async def callback_send_key(call: types.CallbackQuery):
 async def callback_help(call: types.CallbackQuery):
     await call.answer()
     
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(call.from_user.id)
-    
     keyboard = InlineKeyboardMarkup(row_width=1)
     keyboard.add(
         InlineKeyboardButton("Как подключиться?", callback_data="help_connect"),
@@ -696,9 +675,6 @@ async def callback_help(call: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "help_connect")
 async def help_connect(call: types.CallbackQuery):
     await call.answer()
-    
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(call.from_user.id)
     
     keyboard = InlineKeyboardMarkup(row_width=2)
     keyboard.add(
@@ -716,9 +692,6 @@ async def help_connect(call: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "help_issue")
 async def help_issue(call: types.CallbackQuery):
     await call.answer()
-    
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(call.from_user.id)
     
     text = (
         "Попробуйте:\n\n"
@@ -738,9 +711,6 @@ async def help_issue(call: types.CallbackQuery):
 async def help_contact(call: types.CallbackQuery):
     await call.answer()
     
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(call.from_user.id)
-    
     text = "С предложениями и вопросами — пишите @Jotaro1707"
     keyboard = InlineKeyboardMarkup(row_width=1)
     keyboard.add(
@@ -754,9 +724,6 @@ async def help_contact(call: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "menu_main")
 async def back_to_main(call: types.CallbackQuery):
     await call.answer()
-    
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(call.from_user.id)
     
     user_name = call.from_user.first_name or "друг"
     welcome_text = (
@@ -781,9 +748,6 @@ async def back_to_main(call: types.CallbackQuery):
 async def connect_android(call: types.CallbackQuery):
     await call.answer()
     
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(call.from_user.id)
-    
     text = (
         "📱 Android:\n\n"
         "1. Установите WireGuard\n"
@@ -796,9 +760,6 @@ async def connect_android(call: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "connect_ios")
 async def connect_ios(call: types.CallbackQuery):
     await call.answer()
-    
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(call.from_user.id)
     
     text = (
         "🍏 iOS:\n\n"
@@ -813,9 +774,6 @@ async def connect_ios(call: types.CallbackQuery):
 async def connect_macos(call: types.CallbackQuery):
     await call.answer()
     
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(call.from_user.id)
-    
     text = (
         "💻 macOS:\n\n"
         "1. Установите WireGuard\n"
@@ -828,9 +786,6 @@ async def connect_macos(call: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "connect_windows")
 async def connect_windows(call: types.CallbackQuery):
     await call.answer()
-    
-    # Удаляем предыдущие сообщения
-    await delete_previous_messages(call.from_user.id)
     
     text = (
         "🖥 Windows:\n\n"

@@ -47,7 +47,7 @@ WG_SERVER_PUBLIC_KEY=скопированный_ключ
 
 Также обновите адрес сервера:
 ```env
-WG_SERVER_ENDPOINT=ваш_внешний_ip:51830
+WG_SERVER_ENDPOINT=ваш_внешний_ip:51831
 ```
 
 ## Шаг 4: Запуск

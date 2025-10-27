@@ -119,7 +119,7 @@ def generate_real_wg_keys():
 - [ ] Настроить WG_SERVER_ENDPOINT (внешний IP сервера)
 - [ ] Изменить пароли БД
 - [ ] Настроить токен бота
-- [ ] Открыть порт 51830/udp в файрволе
+- [ ] Открыть порт 51831/udp в файрволе
 - [ ] Настроить backup базы данных
 - [ ] Добавить мониторинг
 
@@ -137,7 +137,7 @@ def generate_real_wg_keys():
 
 1. Скопировать `vpn_bot/env.example` в `vpn_bot/.env`
 2. Указать `BOT_TOKEN`
-3. Указать `WG_SERVER_ENDPOINT` (IP сервера:51830)
+3. Указать `WG_SERVER_ENDPOINT` (IP сервера:51831)
 4. После запуска получить реальный `WG_SERVER_PUBLIC_KEY`:
    ```bash
    docker exec wg cat /config/wg0.conf | grep PublicKey

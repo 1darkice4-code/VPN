@@ -45,7 +45,7 @@ Write-Host "  Перезапуск: docker-compose restart"
 Write-Host ""
 Write-Host "🌐 Сервисы доступны:" -ForegroundColor Cyan
 Write-Host "  - REST API: http://localhost:8080"
-Write-Host "  - WireGuard: localhost:51830"
+Write-Host "  - WireGuard: localhost:51831"
 Write-Host "  - PostgreSQL: localhost:5432"
 Write-Host ""
 

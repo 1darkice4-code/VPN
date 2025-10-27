@@ -6,7 +6,7 @@
 set -e
 
 DEVICE_NAME="wg0"
-LISTEN_PORT="51830"
+LISTEN_PORT="51831"
 PRIVATE_KEY_FILE="/etc/wireguard/${DEVICE_NAME}_private.key"
 PUBLIC_KEY_FILE="/etc/wireguard/${DEVICE_NAME}_public.key"
 CONFIG_FILE="/etc/wireguard/${DEVICE_NAME}.conf"
@@ -30,7 +30,15 @@ PUBLIC_KEY=$(cat "$PUBLIC_KEY_FILE")
 
 echo "🔑 Публичный ключ: $PUBLIC_KEY"
 
-# Создаем конфигурацию устройства
+# Определяем внешний интерфейс автоматически
+DEFAULT_IFACE=$(ip route | grep default | awk '{print $5}' | head -n1)
+if [ -z "$DEFAULT_IFACE" ]; then
+    echo "❌ Не удалось определить внешний интерфейс"
+    exit 1
+fi
+echo "🌐 Внешний интерфейс: $DEFAULT_IFACE"
+
+# Создаем конфигурацию устройства (как в коде бота)
 cat > "$CONFIG_FILE" << EOF
 [Interface]
 PrivateKey = $PRIVATE_KEY
@@ -39,9 +47,9 @@ ListenPort = $LISTEN_PORT
 DNS = 1.1.1.1, 8.8.8.8
 MTU = 1420
 
-# Правила iptables для NAT
-PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+# Правила iptables для NAT (используем определенный интерфейс)
+PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o $DEFAULT_IFACE -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o $DEFAULT_IFACE -j MASQUERADE
 EOF
 
 # Устанавливаем права доступа
