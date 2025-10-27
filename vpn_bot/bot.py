@@ -1,6 +1,8 @@
 import os
 import secrets
 import requests
+import base64
+import urllib.parse
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -51,6 +53,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     plan TEXT,
     client_ip TEXT,
     config TEXT,
+    config_key INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT NOW()
 );
 """)
@@ -236,14 +239,14 @@ def save_user_to_db(user: types.User):
         print("DB save_user error:", e)
         conn.rollback()
 
-def save_subscription_to_db(user: types.User, plan_key: str, client_ip: str, config: str):
+def save_subscription_to_db(user: types.User, plan_key: str, client_ip: str, config: str, config_key: int = 0):
     """Сохраняем подписку"""
     try:
         # Убедимся, что пользователь есть
         save_user_to_db(user)
         cursor.execute(
-            "INSERT INTO subscriptions (user_id, plan, client_ip, config) VALUES (%s, %s, %s, %s)",
-            (user.id, PLANS.get(plan_key, {}).get("name", plan_key), client_ip, config)
+            "INSERT INTO subscriptions (user_id, plan, client_ip, config, config_key) VALUES (%s, %s, %s, %s, %s)",
+            (user.id, PLANS.get(plan_key, {}).get("name", plan_key), client_ip, config, config_key)
         )
         conn.commit()
     except Exception as e:
@@ -251,48 +254,63 @@ def save_subscription_to_db(user: types.User, plan_key: str, client_ip: str, con
         conn.rollback()
 
 # ===============================
+# Генерация WireGuard deep links
+# ===============================
+def generate_wireguard_link(name: str, conf_text: str) -> str:
+    """Генерирует deep link для автоматического импорта конфигурации в WireGuard"""
+    # Кодируем конфигурацию в base64
+    encoded_conf = base64.b64encode(conf_text.encode('utf-8')).decode('utf-8')
+    
+    # Экранируем спецсимволы, чтобы ссылка не "сломалась"
+    encoded_conf = urllib.parse.quote(encoded_conf)
+    
+    # Формируем deep link
+    link = f"wireguard://import?name={urllib.parse.quote(name)}&config={encoded_conf}"
+    return link
+
+# ===============================
 # Отправка конфига (основная логика)
 # ===============================
 async def provision_and_send(chat_id: int, user: types.User, plan_key: str):
-    """Генерируем конфиг и отправляем пользователю; сохраняем в БД"""
+    """Генерируем 7 конфигов и отправляем пользователю; сохраняем в БД"""
     plan = PLANS.get(plan_key)
     if not plan:
         await bot.send_message(chat_id, "❌ Ошибка: выбран неверный план.")
         return
 
     try:
-        # Генерируем IP в подсети сервера (10.250.250.X)
-        last_octet = secrets.randbelow(240) + 10
-        client_ip = f"10.250.250.{last_octet}"
+        # Генерируем 7 конфигураций
+        configs_dict = {}
+        for key_num in range(1, 8):
+            # Генерируем уникальный IP для каждой конфигурации
+            last_octet = secrets.randbelow(240) + 10
+            client_ip = f"10.250.250.{last_octet}_{key_num}"
+            
+            # Генерируем конфиг через wgREST
+            config = generate_client_config(user.id, client_ip)
+
+            # Сохраняем в базу с номером ключа
+            save_subscription_to_db(user, plan_key, client_ip, config, config_key=key_num)
+            
+            # Сохраняем конфиг для отправки
+            configs_dict[key_num] = config
         
-        # Генерируем конфиг через wgREST
-        config = generate_client_config(user.id, client_ip)
-
-        # Сохраняем в базу
-        save_subscription_to_db(user, plan_key, client_ip, config)
-
-        # Отправляем конфиг как текст и как файл (.conf)
-        try:
-            # Отправляем текст в pre-блоке
-            await bot.send_message(
-                chat_id,
-                f"✅ Ваш конфиг для *{plan['name']}* готов:\n\n<pre>{config}</pre>",
-                parse_mode="HTML"
-            )
-        except Exception:
-            # fallback plain
-            await bot.send_message(chat_id, f"Ваш конфиг для {plan['name']} готов. (Не удалось отформатировать пред.)")
-
-        # Дополнительно отправим файл .conf
-        try:
-            from io import BytesIO
-            bio = BytesIO()
-            bio.write(config.encode())
-            bio.seek(0)
-            bio.name = f"wg_{client_ip}.conf"
-            await bot.send_document(chat_id, bio)
-        except Exception as e:
-            print("send_document error:", e)
+        # Отправляем сообщение с кнопками deep links
+        text = (
+            "🔐 Готово! Нажмите на кнопки ниже, чтобы добавить VPN в WireGuard:\n\n"
+            "⚠️ **Помните: 1 конфигурация = 1 устройство**\n\n"
+            "Просто нажмите на нужную кнопку — конфигурация откроется в WireGuard автоматически!"
+        )
+        keyboard = InlineKeyboardMarkup(row_width=2)
+        
+        for key_num in range(1, 8):
+            config = configs_dict[key_num]
+            link = generate_wireguard_link(f"VPN Ключ {key_num}", config)
+            keyboard.add(InlineKeyboardButton(f"🔑 Ключ {key_num}", url=link))
+        
+        keyboard.add(InlineKeyboardButton("🔙 Главное меню", callback_data="menu_main"))
+        
+        await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
             
     except Exception as e:
         print(f"❌ Ошибка создания конфига: {e}")
@@ -323,7 +341,7 @@ async def cmd_start(message: types.Message):
     keyboard = InlineKeyboardMarkup(row_width=1)
     keyboard.add(
         InlineKeyboardButton("Выбрать план VPN", callback_data="menu_buy"),
-        InlineKeyboardButton("Статус подписки", callback_data="menu_status"),
+        InlineKeyboardButton("🔑 Мои ключи", callback_data="menu_keys"),
         InlineKeyboardButton("Помощь", callback_data="menu_help")
     )
 
@@ -344,26 +362,80 @@ async def process_buy(call: types.CallbackQuery):
     await call.answer("Генерируем конфиг…")
     await provision_and_send(call.from_user.id, call.from_user, plan_key)
 
-# --- Status ---
-@dp.callback_query_handler(lambda c: c.data == "menu_status")
-async def callback_status(call: types.CallbackQuery):
+# --- Мои ключи ---
+@dp.callback_query_handler(lambda c: c.data == "menu_keys")
+async def callback_keys(call: types.CallbackQuery):
     await call.answer()
     try:
         cursor.execute(
-            "SELECT plan, client_ip, created_at FROM subscriptions WHERE user_id=%s ORDER BY created_at DESC LIMIT 1",
+            "SELECT config, config_key FROM subscriptions WHERE user_id=%s ORDER BY config_key",
             (call.from_user.id,)
         )
-        sub = cursor.fetchone()
-        if sub:
-            plan_name, client_ip, created_at = sub
-            created_str = created_at.strftime("%Y-%m-%d %H:%M:%S")
-            await call.message.answer(f"🔔 Текущая подписка: *{plan_name}*\nIP: `{client_ip}`\nДата: {created_str}",
-                                      parse_mode="Markdown", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Главное меню", callback_data="menu_main")))
+        configs = cursor.fetchall()
+        if configs:
+            # Создаем меню с 7 кнопками
+            keyboard = InlineKeyboardMarkup(row_width=2)
+            buttons = []
+            for i in range(1, 8):
+                # Проверяем, есть ли конфиг для этого ключа
+                config_exists = any(cfg[1] == i for cfg in configs)
+                if config_exists:
+                    buttons.append(InlineKeyboardButton(f"🔑 Ключ {i}", callback_data=f"key_{i}"))
+                else:
+                    buttons.append(InlineKeyboardButton(f"❌ Ключ {i}", callback_data=f"key_{i}"))
+            
+            # Добавляем кнопки по 2 в ряд
+            for i in range(0, len(buttons), 2):
+                if i + 1 < len(buttons):
+                    keyboard.add(buttons[i], buttons[i+1])
+                else:
+                    keyboard.add(buttons[i])
+            
+            keyboard.add(InlineKeyboardButton("🔙 Главное меню", callback_data="menu_main"))
+            
+            await call.message.answer("🔑 Выберите ключ для скачивания:", reply_markup=keyboard)
         else:
-            await call.message.answer("У вас пока нет активной подписки.", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Главное меню", callback_data="menu_main")))
+            await call.message.answer("У вас пока нет активных конфигураций.", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Главное меню", callback_data="menu_main")))
     except Exception as e:
-        print("status error:", e)
-        await call.message.answer("Ошибка при получении статуса подписки. Попробуйте позже.")
+        print("keys error:", e)
+        await call.message.answer("Ошибка при получении ключей. Попробуйте позже.")
+
+# --- Получение конкретного ключа ---
+@dp.callback_query_handler(lambda c: c.data.startswith("key_"))
+async def callback_send_key(call: types.CallbackQuery):
+    await call.answer()
+    try:
+        key_num = int(call.data.split("_")[1])
+        
+        # Получаем конфигурацию для этого ключа
+        cursor.execute(
+            "SELECT config FROM subscriptions WHERE user_id=%s AND config_key=%s",
+            (call.from_user.id, key_num)
+        )
+        result = cursor.fetchone()
+        
+        if result:
+            config = result[0]
+            
+            # Генерируем deep link и отправляем кнопку
+            link = generate_wireguard_link(f"VPN Ключ {key_num}", config)
+            keyboard = InlineKeyboardMarkup().add(
+                InlineKeyboardButton(f"🔑 Подключить ключ {key_num}", url=link),
+                InlineKeyboardButton("🔙 Главное меню", callback_data="menu_main")
+            )
+            
+            await bot.send_message(
+                call.from_user.id,
+                f"🔑 Нажмите кнопку ниже, чтобы добавить **Ключ {key_num}** в WireGuard:\n\n"
+                "⚠️ **Напоминание:** 1 конфигурация = 1 устройство",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+        else:
+            await call.message.answer("❌ Этот ключ не найден.", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("🔙 Главное меню", callback_data="menu_main")))
+    except Exception as e:
+        print("send_key error:", e)
+        await call.message.answer("Ошибка при отправке ключа. Попробуйте позже.")
 
 # --- Help menu ---
 @dp.callback_query_handler(lambda c: c.data == "menu_help")
@@ -408,7 +480,7 @@ async def help_issue(call: types.CallbackQuery):
         "‼️ ЧИТАТЬ ВСЕМ ‼️\n\n"
         "1. Попробуйте выключить/включить VPN и сеть.\n"
         "2. Перезагрузите устройство.\n"
-        "3. Если была оплата — проверьте статус в разделе \"Статус подписки\".\n\n"
+        "3. Если была оплата — проверьте ключи в разделе \"🔑 Мои ключи\".\n\n"
         "Если проблема сохраняется — напишите в поддержку: @Jotaro1707"
     )
     keyboard = InlineKeyboardMarkup(row_width=1)
@@ -445,7 +517,7 @@ async def back_to_main(call: types.CallbackQuery):
     keyboard = InlineKeyboardMarkup(row_width=1)
     keyboard.add(
         InlineKeyboardButton("Выбрать план VPN", callback_data="menu_buy"),
-        InlineKeyboardButton("Статус подписки", callback_data="menu_status"),
+        InlineKeyboardButton("🔑 Мои ключи", callback_data="menu_keys"),
         InlineKeyboardButton("Помощь", callback_data="menu_help")
     )
     await call.message.edit_text(welcome_text, reply_markup=keyboard)
@@ -457,9 +529,9 @@ async def connect_android(call: types.CallbackQuery):
     text = (
         "📱 Инструкция по подключению VPN на Android:\n\n"
         "1️⃣ Установите приложение WireGuard: https://play.google.com/store/apps/details?id=com.wireguard.android\n"
-        "2️⃣ Скачайте конфиг (он придет в чате после покупки)\n"
-        "3️⃣ В приложении нажмите ➕ → Импорт из файла и выберите скачанный .conf\n"
-        "4️⃣ Включите туннель"
+        "2️⃣ После покупки нажмите на кнопку с нужным ключом\n"
+        "3️⃣ Приложение WireGuard откроется автоматически — нажмите «Добавить туннель»\n"
+        "4️⃣ Готово! Включите туннель"
     )
     await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("Главное меню", callback_data="menu_main")))
 
@@ -469,8 +541,9 @@ async def connect_ios(call: types.CallbackQuery):
     text = (
         "🍏 Инструкция по подключению VPN на iOS:\n\n"
         "1️⃣ Установите WireGuard: https://apps.apple.com/ru/app/wireguard/id1441195209\n"
-        "2️⃣ Откройте файл .conf из чата и поделитесь им в WireGuard\n"
-        "3️⃣ Включите туннель"
+        "2️⃣ После покупки нажмите на кнопку с нужным ключом\n"
+        "3️⃣ Приложение WireGuard откроется автоматически — нажмите «Добавить туннель»\n"
+        "4️⃣ Готово! Включите туннель"
     )
     await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("Главное меню", callback_data="menu_main")))
 
@@ -480,8 +553,9 @@ async def connect_macos(call: types.CallbackQuery):
     text = (
         "💻 Инструкция для macOS:\n\n"
         "1️⃣ Установите WireGuard: https://apps.apple.com/ru/app/wireguard/id1451685025?mt=12\n"
-        "2️⃣ Импортируйте .conf в приложение\n"
-        "3️⃣ Включите туннель"
+        "2️⃣ После покупки нажмите на кнопку с нужным ключом\n"
+        "3️⃣ Приложение WireGuard откроется автоматически — нажмите «Добавить туннель»\n"
+        "4️⃣ Готово! Включите туннель"
     )
     await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("Главное меню", callback_data="menu_main")))
 
@@ -490,9 +564,10 @@ async def connect_windows(call: types.CallbackQuery):
     await call.answer()
     text = (
         "🖥 Инструкция для Windows:\n\n"
-        "1️⃣ Скачайте WireGuard: https://download.wireguard.com/windows-client/wireguard-installer.exe\n"
-        "2️⃣ Откройте .conf файл и импортируйте его в приложение\n"
-        "3️⃣ Включите туннель"
+        "1️⃣ Установите WireGuard: https://download.wireguard.com/windows-client/wireguard-installer.exe\n"
+        "2️⃣ После покупки нажмите на кнопку с нужным ключом\n"
+        "3️⃣ Приложение WireGuard откроется автоматически — нажмите «Добавить туннель»\n"
+        "4️⃣ Готово! Включите туннель"
     )
     await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("Главное меню", callback_data="menu_main")))
 
