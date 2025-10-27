@@ -405,7 +405,7 @@ async def provision_and_send(chat_id: int, user: types.User, plan_key: str):
         # Генерируем конфигурации
         for key_num in range(1, max_devices + 1):
             # Генерируем уникальный IP для каждой конфигурации
-            client_ip = f"10.66.66.{10 + ((user_id + key_num) % 240)}/32"
+            client_ip = f"10.66.66.{10 + ((user.id + key_num) % 240)}/32"
             
             # Генерируем конфиг через wgREST
             config, public_key = generate_client_config(user.id, client_ip)
