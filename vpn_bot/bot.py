@@ -126,6 +126,14 @@ async def update_last_message(user_id: int, message_id: int):
     """Обновляет ID последнего сообщения пользователя"""
     user_last_message[user_id] = message_id
 
+def check_ip_forwarding():
+    """Проверяем, включен ли IP forwarding на сервере"""
+    try:
+        with open('/proc/sys/net/ipv4/ip_forward', 'r') as f:
+            return f.read().strip() == '1'
+    except:
+        return False
+
 def check_wg_device():
     """Проверяем существование WireGuard устройства"""
     headers = {}
@@ -157,13 +165,17 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
             response = requests.get(f"{WGREST_URL}/version", headers=headers, timeout=3)
             print(f"wgREST доступен, версия: {response.text}")
         except:
-            raise Exception("wgREST недоступен, используем fallback")
+            raise Exception("wgREST недоступен")
         
         # 2. Проверяем доступность устройства
         if not check_wg_device():
             raise Exception("WireGuard устройство недоступно. Проверьте, что WireGuard сервис запущен.")
         
-        # 3. Создаем пира через API
+        # 3. Проверяем IP forwarding
+        if not check_ip_forwarding():
+            print("⚠️ IP forwarding не включен на сервере! Трафик может не работать.")
+        
+        # 4. Создаем пира через API
         peer_name = f"user_{user_id}_{secrets.token_hex(4)}"
         
         # Генерируем IP для клиента (10.66.66.10-250) в подсети сервера
@@ -173,12 +185,12 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
         if WGREST_AUTH_TOKEN:
             headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
         
-        # Создаем пира с указанием allowed_ips
+        # Создаем пира с указанием allowed_ips (весь трафик через VPN)
         response = requests.post(
             f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/",
             json={
                 "name": peer_name,
-                "allowed_ips": [client_ip]
+                "allowed_ips": ["0.0.0.0/0"]
             },
             headers=headers,
             timeout=10
