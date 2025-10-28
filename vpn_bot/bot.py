@@ -185,12 +185,11 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
         if WGREST_AUTH_TOKEN:
             headers["Authorization"] = f"Bearer {WGREST_AUTH_TOKEN}"
         
-        # Создаем пира с указанием allowed_ips (весь трафик через VPN)
+        # Создаем пира без allowed_ips (wgREST может не поддерживать это при создании)
         response = requests.post(
             f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/",
             json={
-                "name": peer_name,
-                "allowed_ips": ["0.0.0.0/0"]
+                "name": peer_name
             },
             headers=headers,
             timeout=10
@@ -206,6 +205,21 @@ def create_peer_via_wgrest(user_id: int, plan_name: str):
                 raise Exception("Не удалось получить публичный ключ пира")
             
             print(f"DEBUG: Requesting config for key: {peer_key}")
+            
+            # Обновляем allowed_ips для пира (весь трафик через VPN)
+            update_response = requests.patch(
+                f"{WGREST_URL}/v1/devices/{WGREST_DEVICE}/peers/{peer_key}/",
+                json={
+                    "allowed_ips": ["0.0.0.0/0"]
+                },
+                headers=headers,
+                timeout=10
+            )
+            
+            if update_response.status_code in [200, 204]:
+                print(f"✅ Allowed IPs обновлены для пира {peer_key}")
+            else:
+                print(f"⚠️ Не удалось обновить allowed_ips: {update_response.status_code}")
             
             # Получаем конфиг
             config_headers = {}
